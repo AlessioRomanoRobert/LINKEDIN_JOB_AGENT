@@ -510,6 +510,8 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
 }
 .company-cell { display:flex; align-items:center; gap:9px; }
 .company-name { font-size:12.5px; color:var(--text2); }
+.contact-link { font-size:11px; color:var(--blue); opacity:.8; text-decoration:none; }
+.contact-link:hover { opacity:1; text-decoration:underline; }
 
 .job-title a {
   color: var(--text); text-decoration:none; font-weight:500; font-size:13px;
@@ -1243,7 +1245,10 @@ function renderJobs(jobs) {
       <td>
         <div class="company-cell">
           ${av}
-          <span class="company-name">${esc(j.company || '—')}</span>
+          <div>
+            <span class="company-name">${esc(j.company || '—')}</span>
+            ${j.hiring_contact ? `<br><a class="contact-link" href="${esc(j.hiring_contact.linkedin_url)}" target="_blank" rel="noopener" title="${esc(j.hiring_contact.title || '')}">👤 ${esc(j.hiring_contact.name)}</a>` : ''}
+          </div>
         </div>
       </td>
       <td>

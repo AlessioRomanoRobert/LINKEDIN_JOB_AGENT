@@ -392,16 +392,71 @@ def scrape_listing(
 # ─── Scraping de detalle ──────────────────────────────────────────────────────
 
 
-def fetch_description(job_id: str, log_fn=None) -> str | None:
+def parse_hiring_contact(soup) -> dict | None:
     """
-    Obtiene la descripción completa de una oferta por su job_id numérico.
-    LinkedIn sirve el HTML del detalle en el endpoint /jobPosting/<id>.
+    Extrae el contacto del equipo de contratación ("Anunciante del empleo") del HTML
+    del detalle de una oferta de LinkedIn.
 
-    Prueba varios selectores CSS en orden de preferencia, ya que LinkedIn
-    cambia la estructura HTML con frecuencia.
+    LinkedIn muestra una sección "Conoce al equipo de contratación" con el nombre,
+    cargo y URL de LinkedIn del responsable que publicó la oferta.
+    Las clases CSS están ofuscadas y cambian, así que buscamos por texto, no por clase.
 
     Returns:
-        Texto plano de la descripción, o None si no se pudo obtener.
+        dict {name, title, linkedin_url} o None si no se encuentra.
+    """
+    # Localizar el marcador textual "Anunciante del empleo" o su versión en inglés
+    marker_el = None
+    for marker in ["Anunciante del empleo", "Job poster"]:
+        marker_el = soup.find(string=lambda t, m=marker: t and m.lower() in t.lower())
+        if marker_el:
+            break
+
+    if not marker_el:
+        return None
+
+    # Subir por el árbol hasta encontrar el <a> que envuelve toda la tarjeta del contacto
+    node = marker_el.parent
+    a_tag = None
+    for _ in range(10):
+        if node is None:
+            break
+        if node.name == "a" and "linkedin.com/in/" in (node.get("href") or ""):
+            a_tag = node
+            break
+        node = node.parent
+
+    if not a_tag:
+        return None
+
+    linkedin_url = a_tag["href"].split("?")[0].rstrip("/")
+
+    # Nombre: el enlace interno con la URL de LinkedIn
+    name_a = a_tag.find("a", href=lambda h: h and "linkedin.com/in/" in h)
+    name   = name_a.get_text(strip=True) if name_a else None
+
+    if not name:
+        return None
+
+    # Cargo: el <p> dentro del <a> que no es el nombre, no es el marcador y no es el grado de conexión
+    title       = None
+    skip_texts  = {name, "Anunciante del empleo", "Job poster"}
+    for p in a_tag.find_all("p"):
+        text = p.get_text(strip=True)
+        if text and text not in skip_texts and "•" not in text and len(text) > 3:
+            title = text
+            break
+
+    return {"name": name, "title": title, "linkedin_url": linkedin_url}
+
+
+def fetch_detail(job_id: str, log_fn=None) -> tuple[str | None, dict | None]:
+    """
+    Obtiene la descripción completa y el contacto de contratación de una oferta,
+    en una sola petición HTTP al endpoint /jobPosting/<id>.
+
+    Returns:
+        (description: str|None, hiring_contact: dict|None)
+        hiring_contact = {name, title, linkedin_url} si LinkedIn lo expone, sino None.
     """
     url = DETAIL_URL.format(job_id=job_id)
     try:
@@ -410,24 +465,35 @@ def fetch_description(job_id: str, log_fn=None) -> str | None:
     except requests.RequestException as e:
         if log_fn:
             log_fn(f"  (error detalle {job_id}: {e})")
-        return None
+        return None, None
 
     soup = BeautifulSoup(r.text, "html.parser")
 
+    # ── Descripción ───────────────────────────────────────────────────────────
     # Probamos selectores de más a menos específico.
     # LinkedIn ha ido renombrando estas clases; los tres cubren versiones distintas.
-    candidates = [
+    description = None
+    for el in [
         soup.find("div", class_="description__text"),
         soup.find("div", {"class": lambda c: c and "show-more-less-html__markup" in c}),
         soup.find("span", attrs={"data-testid": "expandable-text-box"}),
-    ]
-    for el in candidates:
+    ]:
         if el:
             text = el.get_text(separator="\n", strip=True)
-            if len(text) > 50:  # descartar descripciones vacías/triviales
-                return text
+            if len(text) > 50:
+                description = text
+                break
 
-    return None
+    # ── Contacto de contratación ──────────────────────────────────────────────
+    hiring_contact = parse_hiring_contact(soup)
+
+    return description, hiring_contact
+
+
+def fetch_description(job_id: str, log_fn=None) -> str | None:
+    """Wrapper de compatibilidad — devuelve solo la descripción."""
+    desc, _ = fetch_detail(job_id, log_fn=log_fn)
+    return desc
 
 # ─── Flujo principal ──────────────────────────────────────────────────────────
 

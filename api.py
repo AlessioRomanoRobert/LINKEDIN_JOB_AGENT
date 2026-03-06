@@ -561,7 +561,7 @@ async def start_scrape(params: ScrapeParams):
         try:
             from scraper import (
                 detect_remote,
-                fetch_description,
+                fetch_detail,
                 load_existing,
                 scrape_listing,
             )
@@ -664,8 +664,14 @@ async def start_scrape(params: ScrapeParams):
                     scrape_mgr.log(
                         f"[{i+1}/{len(jobs_list)}] {job['title']} @ {job.get('company', '?')}"
                     )
-                    desc = fetch_description(jid)
-                    job["description"] = desc
+                    desc, contact = fetch_detail(jid)
+                    job["description"]    = desc
+                    job["hiring_contact"] = contact   # {name, title, linkedin_url} o None
+                    if contact:
+                        scrape_mgr.log(
+                            f"  Contacto: {contact['name']} ({contact.get('title') or 'sin cargo'})",
+                            "info",
+                        )
 
                     # Detectar idioma de la descripción (NO del título)
                     lang = detect_language(desc) if desc else "unknown"
