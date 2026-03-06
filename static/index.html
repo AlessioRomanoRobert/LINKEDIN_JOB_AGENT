@@ -365,6 +365,19 @@ textarea { min-height: 80px; resize: vertical; }
   box-shadow: 0 7px 30px rgba(5,150,105,.45);
 }
 
+.btn-stop {
+  padding: 11px 18px; flex-shrink: 0;
+  background: linear-gradient(135deg, #b91c1c 0%, #9f1239 100%);
+  color: #fff; font-size: 14px;
+  border-radius: var(--r);
+  box-shadow: 0 4px 24px rgba(185,28,28,.3);
+  transition: transform .15s, box-shadow .15s, opacity .15s;
+}
+.btn-stop:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 7px 30px rgba(185,28,28,.45);
+}
+
 /* ══════════════════════════════════════════════════════════════════
    TWO-COLUMN LAYOUT (scraping + cleaning tabs)
 ══════════════════════════════════════════════════════════════════ */
@@ -850,9 +863,14 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
         </div>
       </div>
 
-      <button class="btn btn-launch" id="btn-scrape" onclick="startScraping()">
-        ▶&nbsp; Iniciar Scraping
-      </button>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn btn-launch" id="btn-scrape" onclick="startScraping()">
+          ▶&nbsp; Iniciar Scraping
+        </button>
+        <button class="btn btn-stop" id="btn-scrape-stop" onclick="stopScraping()" disabled>
+          ■&nbsp; Parar
+        </button>
+      </div>
 
     </div>
 
@@ -1313,14 +1331,30 @@ async function startScraping() {
   }
 
   btn.disabled = true;
+  document.getElementById('btn-scrape-stop').disabled = false;
   setBadge('badge-scrape', true, 'Scraping');
 
   if (scrapeES) scrapeES.close();
   scrapeES = sseConnect('/api/scrape/stream', 'scrape-console', type => {
     btn.disabled = false;
+    document.getElementById('btn-scrape-stop').disabled = true;
     setBadge('badge-scrape', false, 'Scraping');
     if (type === 'done') { loadStats(); loadJobs(); }
   });
+}
+
+async function stopScraping() {
+  const stopBtn = document.getElementById('btn-scrape-stop');
+  stopBtn.disabled = true;
+  stopBtn.textContent = '⏳ Parando…';
+  try {
+    await API.post('/api/scrape/stop', {});
+    appendLog('scrape-console', { level:'warning', msg:'Señal de parada enviada. El proceso terminará al acabar la tarea actual.', ts: now() });
+  } catch(e) {
+    appendLog('scrape-console', { level:'error', msg:'Error al parar: ' + e.message, ts: now() });
+    stopBtn.disabled = false;
+    stopBtn.textContent = '■ Parar';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════

@@ -71,6 +71,7 @@ class StreamManager:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._subscribers: list[asyncio.Queue] = []
         self._lock = threading.Lock()
+        self._stop_event = threading.Event()  # señal de parada cooperativa
 
     def set_loop(self, loop: asyncio.AbstractEventLoop):
         """Guarda el event loop de asyncio para poder enviar desde hilos."""
@@ -128,6 +129,21 @@ class StreamManager:
         with self._lock:
             if q in self._subscribers:
                 self._subscribers.remove(q)
+
+    # ── Control de parada ─────────────────────────────────────────────────────
+
+    @property
+    def stop_requested(self) -> bool:
+        """True si el usuario ha solicitado parar el proceso en curso."""
+        return self._stop_event.is_set()
+
+    def request_stop(self):
+        """Señaliza al hilo de trabajo que debe detenerse lo antes posible."""
+        self._stop_event.set()
+
+    def reset(self):
+        """Limpia la señal de parada antes de iniciar un nuevo proceso."""
+        self._stop_event.clear()
 
 
 # Una instancia por proceso largo
@@ -421,19 +437,17 @@ async def start_scrape(params: ScrapeParams):
         raise HTTPException(status_code=409, detail="Scraping ya en curso")
 
     scrape_mgr.running = True
+    scrape_mgr.reset()  # limpiar señal de parada de la sesión anterior
 
     def run():
         """Hilo de trabajo: llama al scraper y redirige los logs al StreamManager."""
         try:
-            # Importamos aquí para que los errores de import lleguen al log
             from scraper import (
                 detect_remote,
                 fetch_description,
                 load_existing,
-                save_all,
                 scrape_listing,
             )
-
             import random
 
             scrape_mgr.log(
@@ -447,8 +461,16 @@ async def start_scrape(params: ScrapeParams):
 
             new_jobs: dict = {}
 
+            def incremental_save():
+                """Escribe el estado actual en jobs.json sin esperar al final."""
+                save_jobs(list({**existing, **new_jobs}.values()))
+
             # ── Fase 1: listados ──────────────────────────────────────────────
             for i, keyword in enumerate(params.keywords):
+                if scrape_mgr.stop_requested:
+                    scrape_mgr.log("Parada solicitada. Finalizando listados.", "warning")
+                    break
+
                 scrape_mgr.log(f"{'─'*40}")
                 scrape_mgr.log(f"[{i+1}/{len(params.keywords)}] '{keyword}' en {params.location}")
 
@@ -477,13 +499,18 @@ async def start_scrape(params: ScrapeParams):
                     new_jobs[jid]    = job
                     added += 1
 
-                scrape_mgr.log(
-                    f"→ {added} nuevos (de {len(found)} encontrados)",
-                    "success",
-                )
+                scrape_mgr.log(f"→ {added} nuevos (de {len(found)} encontrados)", "success")
+
+                # Guardado incremental tras cada keyword (por si se para después)
+                if added:
+                    incremental_save()
+                    scrape_mgr.log(
+                        f"  Guardado parcial: {len(existing) + len(new_jobs)} trabajos en disco.",
+                        "info",
+                    )
 
                 # Pausa entre keywords para evitar bloqueos por rate-limit
-                if i < len(params.keywords) - 1:
+                if i < len(params.keywords) - 1 and not scrape_mgr.stop_requested:
                     wait = 12
                     scrape_mgr.log(f"Pausa {wait}s entre keywords...")
                     time.sleep(wait)
@@ -491,10 +518,9 @@ async def start_scrape(params: ScrapeParams):
             scrape_mgr.log(f"\nTotal trabajos nuevos esta sesión: {len(new_jobs)}")
 
             # ── Fase 2: descripciones + detección de idioma ───────────────────
-            # El filtro de idioma requiere la descripción: forzamos fetch si está activo
             must_fetch = params.fetch_descriptions or bool(params.lang_filter)
 
-            if new_jobs and must_fetch:
+            if new_jobs and must_fetch and not scrape_mgr.stop_requested:
                 from scraper import detect_language
 
                 if params.lang_filter:
@@ -508,6 +534,10 @@ async def start_scrape(params: ScrapeParams):
                 jobs_list = list(new_jobs.values())
 
                 for i, job in enumerate(jobs_list):
+                    if scrape_mgr.stop_requested:
+                        scrape_mgr.log("Parada solicitada. Guardando lo obtenido.", "warning")
+                        break
+
                     jid = job.get("job_id")
                     if not jid:
                         continue
@@ -538,6 +568,9 @@ async def start_scrape(params: ScrapeParams):
                             scrape_mgr.log("  sin descripción", "warning")
                         new_jobs[jid] = job
 
+                    # Guardado incremental tras cada descripción obtenida
+                    incremental_save()
+
                     time.sleep(random.uniform(3, 6))
 
                 if params.lang_filter and skipped_lang:
@@ -546,17 +579,33 @@ async def start_scrape(params: ScrapeParams):
                         "info",
                     )
 
-            # ── Fase 3: persistir ─────────────────────────────────────────────
-            combined = {**existing, **new_jobs}
-            save_all(combined, log_fn=lambda m: scrape_mgr.log(m, "success"))
+            # ── Guardado final canónico ────────────────────────────────────────
+            incremental_save()
 
-            scrape_mgr.done(f"Completado. {len(new_jobs)} trabajos nuevos guardados.")
+            if scrape_mgr.stop_requested:
+                scrape_mgr.done(f"Parado. {len(new_jobs)} trabajos guardados en disco.")
+            else:
+                scrape_mgr.done(f"Completado. {len(new_jobs)} trabajos nuevos guardados.")
 
         except Exception as exc:
             scrape_mgr.error(f"Error inesperado: {exc}")
 
     threading.Thread(target=run, daemon=True, name="scraper").start()
     return {"status": "started", "message": "Scraping iniciado; conéctate a /api/scrape/stream para ver el progreso"}
+
+
+@app.post("/api/scrape/stop", summary="Parar scraping en curso")
+async def stop_scrape():
+    """
+    Envía una señal de parada cooperativa al hilo de scraping.
+    El hilo termina en el próximo punto de control (entre keywords o entre descripciones)
+    y guarda en disco lo que haya obtenido hasta ese momento.
+    Devuelve 409 si no hay scraping en curso.
+    """
+    if not scrape_mgr.running:
+        raise HTTPException(status_code=409, detail="No hay scraping en curso")
+    scrape_mgr.request_stop()
+    return {"status": "stopping", "message": "Señal de parada enviada; el proceso terminará en el próximo punto de control"}
 
 
 @app.get("/api/scrape/status", summary="Estado del scraping")
