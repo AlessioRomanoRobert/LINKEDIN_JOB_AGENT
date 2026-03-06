@@ -960,7 +960,7 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
         <div class="form-grid">
           <div class="form-group">
             <label class="form-label">Rol buscado <span style="color:var(--muted);font-weight:400;font-size:11px">— varios separados por coma</span></label>
-            <input type="text" id="c-role" value="AI/ML Engineer" placeholder="ej. AI Engineer, Data Engineer, MLOps">
+            <input type="text" id="c-role" value="AI/ML Engineer, Software Architect, Senior Engineer" placeholder="ej. AI Engineer, Data Engineer, MLOps">
           </div>
           <div class="form-group">
             <label class="form-label">Seniority</label>
@@ -983,7 +983,7 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
         </div>
         <div class="form-group" style="margin-top:12px">
           <label class="form-label">Preferencias adicionales <span style="color:var(--muted);font-size:11px">(texto libre)</span></label>
-          <textarea id="c-extra" style="min-height:60px" placeholder="ej. No consultoras, prefiero startups o empresas de producto...">No consultoras ni outsourcing. Solo empresas de producto o startups de IA.</textarea>
+          <textarea id="c-extra" style="min-height:60px" placeholder="ej. No consultoras, prefiero startups o empresas de producto...">No freelance.</textarea>
         </div>
       </div>
 
@@ -1005,9 +1005,14 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
         </div>
       </div>
 
-      <button class="btn btn-launch btn-launch-green" id="btn-clean" onclick="startCleaning()">
-        ✦&nbsp; Lanzar Limpieza IA
-      </button>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn btn-launch btn-launch-green" id="btn-clean" onclick="startCleaning()">
+          ✦&nbsp; Lanzar Limpieza IA
+        </button>
+        <button class="btn btn-stop" id="btn-clean-stop" onclick="stopCleaning()" disabled>
+          ■&nbsp; Parar
+        </button>
+      </div>
 
     </div>
 
@@ -1457,14 +1462,30 @@ async function startCleaning() {
   }
 
   btn.disabled = true;
+  document.getElementById('btn-clean-stop').disabled = false;
   setBadge('badge-clean', true, 'IA');
 
   if (cleanES) cleanES.close();
   cleanES = sseConnect('/api/clean/stream', 'clean-console', type => {
     btn.disabled = false;
+    document.getElementById('btn-clean-stop').disabled = true;
     setBadge('badge-clean', false, 'IA');
     if (type === 'done') { loadStats(); loadJobs(); }
   });
+}
+
+async function stopCleaning() {
+  const stopBtn = document.getElementById('btn-clean-stop');
+  stopBtn.disabled = true;
+  stopBtn.textContent = '⏳ Parando…';
+  try {
+    await API.post('/api/clean/stop', {});
+    appendLog('clean-console', { level:'warning', msg:'Señal de parada enviada. Se guardará lo procesado hasta ahora.', ts: now() });
+  } catch(e) {
+    appendLog('clean-console', { level:'error', msg:'Error al parar: ' + e.message, ts: now() });
+    stopBtn.disabled = false;
+    stopBtn.textContent = '■ Parar';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════

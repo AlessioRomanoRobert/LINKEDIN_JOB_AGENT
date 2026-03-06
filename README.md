@@ -2,6 +2,16 @@
 
 Agente personal para buscar, filtrar y puntuar ofertas de trabajo en LinkedIn — sin necesidad de login, con dashboard web y evaluación automática por IA.
 
+> **⚠️ Demo · Uso local y personal**
+>
+> Este proyecto es una **demo de agentes de IA** diseñada para uso propio en local.
+> **No está pensada para ser desplegada en producción ni expuesta a internet.**
+> No incluye autenticación robusta, cifrado de datos, auditoría de accesos ni ninguna
+> otra medida de seguridad necesaria para un entorno multi-usuario o público.
+>
+> Si la expones en una red, configura al menos `LOCAL_TOKEN` en el `.env` (ver abajo)
+> y asegúrate de que el servidor solo escucha en `127.0.0.1`.
+
 ---
 
 ## Arquitectura

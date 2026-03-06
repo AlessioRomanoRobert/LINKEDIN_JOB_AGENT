@@ -22,9 +22,21 @@ from typing import Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+# ─── Schema de evaluación IA (Structured Outputs) ─────────────────────────────
+
+class JobEvaluation(BaseModel):
+    """
+    Schema que el modelo debe rellenar para cada oferta.
+    Se usa con client.beta.chat.completions.parse() → garantiza tipos estrictos.
+    """
+    score:         int            # 1-10
+    is_remote:     bool
+    notes:         str            # máx 80 chars
+    reject_reason: Optional[str] = None  # solo si score <= 3
 
 # Carga OPENAI_API_KEY (y cualquier otra variable) desde .env
 load_dotenv()
@@ -37,13 +49,40 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS abierto en desarrollo; restringir en producción según necesidades
+# CORS restringido a localhost (esta app es solo para uso local)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:3000",   # por si se usa un dev-server alternativo
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── Seguridad mínima para uso local ──────────────────────────────────────────
+# Si LOCAL_TOKEN está definido en .env, todas las llamadas a /api/* deben
+# incluir el header  X-Token: <valor>  o el query param  ?token=<valor>.
+# Si no está definido, la API funciona sin autenticación (solo localhost).
+
+_LOCAL_TOKEN: str | None = None   # se carga en startup()
+
+
+@app.middleware("http")
+async def token_guard(request: Request, call_next):
+    """Middleware de token local: bloquea /api/* si LOCAL_TOKEN está configurado."""
+    if _LOCAL_TOKEN and request.url.path.startswith("/api/"):
+        provided = (
+            request.headers.get("X-Token")
+            or request.query_params.get("token")
+        )
+        if provided != _LOCAL_TOKEN:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Token requerido. Configura LOCAL_TOKEN en .env y pásalo como header X-Token."},
+            )
+    return await call_next(request)
 
 # Rutas de archivos
 JOBS_FILE       = Path("jobs.json")
@@ -155,10 +194,16 @@ clean_mgr  = StreamManager("clean")
 @app.on_event("startup")
 async def startup():
     """Captura el event loop al arrancar para poder usar los StreamManagers."""
+    global _LOCAL_TOKEN
     loop = asyncio.get_running_loop()
     scrape_mgr.set_loop(loop)
     clean_mgr.set_loop(loop)
     STATIC_DIR.mkdir(exist_ok=True)
+    _LOCAL_TOKEN = os.getenv("LOCAL_TOKEN") or None
+    if _LOCAL_TOKEN:
+        print(f"[seguridad] LOCAL_TOKEN activo — todas las llamadas a /api/* requieren X-Token")
+    else:
+        print("[seguridad] LOCAL_TOKEN no configurado — API accesible sin autenticación (solo local)")
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -713,6 +758,7 @@ async def start_clean(params: CleanParams):
         )
 
     clean_mgr.running = True
+    clean_mgr.reset()  # limpiar señal de parada de la sesión anterior
 
     def run():
         """Hilo de trabajo: itera las ofertas y llama a la API de OpenAI."""
@@ -750,15 +796,15 @@ async def start_clean(params: CleanParams):
                 f"  Stack que domina:  {stack_yes_str}\n"
                 f"  Stack a evitar:    {stack_no_str}"
                 f"{extra_block}\n\n"
-                "CRITERIOS DE PUNTUACIÓN (score 1–10):\n"
+                "CRITERIOS DE PUNTUACIÓN (score 1-10):\n"
                 "  El criterio MÁS IMPORTANTE es el encaje de stack tecnológico.\n"
                 "  El seniority indicado en la oferta tiene POCO PESO — las empresas suelen\n"
                 "  poner niveles arbitrarios; ignóralo o dále importancia mínima.\n\n"
-                "  9–10 → Stack muy alineado, rol encaja perfectamente\n"
-                "  7–8  → Stack mayoritariamente alineado, algún mismatch menor\n"
-                "  5–6  → Stack parcialmente alineado o rol similar pero diferente\n"
-                "  3–4  → Stack bastante distinto del dominado\n"
-                "  1–2  → Stack completamente distinto o rol incompatible\n\n"
+                "  9-10 → Stack muy alineado, rol encaja perfectamente\n"
+                "  7-8  → Stack mayoritariamente alineado, algún mismatch menor\n"
+                "  5-6  → Stack parcialmente alineado o rol similar pero diferente\n"
+                "  3-4  → Stack bastante distinto del dominado\n"
+                "  1-2  → Stack completamente distinto o rol incompatible\n\n"
                 "PENALIZA CON SCORE ≤ 3 si:\n"
                 "  - La oferta requiere principalmente tecnologías del stack a evitar\n"
                 "  - La descripción contradice claramente las preferencias adicionales\n\n"
@@ -773,6 +819,10 @@ async def start_clean(params: CleanParams):
 
             processed = 0
             for job in to_process:
+                if clean_mgr.stop_requested:
+                    clean_mgr.log("Parada solicitada. Guardando resultados.", "warning")
+                    break
+
                 title    = job.get("title",    "N/A")
                 company  = job.get("company",  "N/A")
                 location = job.get("location", "N/A")
@@ -789,25 +839,25 @@ async def start_clean(params: CleanParams):
                 )
 
                 try:
-                    resp = client.chat.completions.create(
+                    # Structured Outputs: el modelo rellena el schema JobEvaluation
+                    # con tipos garantizados (no puede devolver campos incorrectos)
+                    resp = client.beta.chat.completions.parse(
                         model=params.model,
                         messages=[
                             {"role": "system", "content": system_prompt},
                             {"role": "user",   "content": user_content},
                         ],
-                        # json_object garantiza respuesta JSON parseable
-                        response_format={"type": "json_object"},
-                        temperature=0.1,   # baja temperatura → respuestas consistentes
-                        max_tokens=200,
+                        response_format=JobEvaluation,
+                        max_completion_tokens=200,
                     )
 
-                    result = json.loads(resp.choices[0].message.content)
+                    result: JobEvaluation = resp.choices[0].message.parsed
 
                     # Escribir resultados en el objeto del trabajo
-                    job["ai_score"]           = result.get("score")
-                    job["ai_remote_verified"] = result.get("is_remote")
-                    job["ai_notes"]           = result.get("notes")
-                    job["ai_reject_reason"]   = result.get("reject_reason")
+                    job["ai_score"]           = result.score
+                    job["ai_remote_verified"] = result.is_remote
+                    job["ai_notes"]           = result.notes
+                    job["ai_reject_reason"]   = result.reject_reason
                     job["ai_cleaned_at"]      = datetime.now().isoformat()
 
                     score = job["ai_score"] or 0
@@ -825,11 +875,11 @@ async def start_clean(params: CleanParams):
                 # Pausa mínima para respetar el rate-limit de OpenAI en tier bajo
                 time.sleep(0.3)
 
-            # Guardar resultados
+            # Guardar resultados (incluyendo los procesados antes de una parada)
             save_jobs(jobs)
 
             # Opcional: eliminar trabajos bajo el umbral de score
-            if params.min_score_keep is not None:
+            if params.min_score_keep is not None and not clean_mgr.stop_requested:
                 before  = len(jobs)
                 jobs    = [
                     j for j in jobs
@@ -843,13 +893,25 @@ async def start_clean(params: CleanParams):
                     "info",
                 )
 
-            clean_mgr.done(f"Limpieza completada. {processed} trabajos procesados.")
+            if clean_mgr.stop_requested:
+                clean_mgr.done(f"Parado. {processed} trabajos procesados y guardados.")
+            else:
+                clean_mgr.done(f"Limpieza completada. {processed} trabajos procesados.")
 
         except Exception as exc:
             clean_mgr.error(f"Error inesperado: {exc}")
 
     threading.Thread(target=run, daemon=True, name="cleaner").start()
     return {"status": "started", "message": "Limpieza iniciada; conéctate a /api/clean/stream para ver el progreso"}
+
+
+@app.post("/api/clean/stop", summary="Parar limpieza en curso")
+async def stop_clean():
+    """Envía señal de parada al hilo de limpieza. Guarda en disco lo procesado hasta ese momento."""
+    if not clean_mgr.running:
+        raise HTTPException(status_code=409, detail="No hay limpieza en curso")
+    clean_mgr.request_stop()
+    return {"status": "stopping", "message": "Señal de parada enviada"}
 
 
 @app.get("/api/clean/status", summary="Estado de la limpieza")
