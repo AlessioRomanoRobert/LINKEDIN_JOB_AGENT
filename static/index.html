@@ -597,6 +597,21 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
 }
 .btn-row-del:hover { color:var(--red); background:var(--red-glow); }
 
+.btn-row-apply {
+  background:none; border:1px solid var(--border); cursor:pointer;
+  color:var(--muted); padding:4px 8px; border-radius:5px;
+  font-size:11px; font-weight:600; letter-spacing:.03em;
+  transition:color .12s, background .12s, border-color .12s;
+  white-space:nowrap;
+}
+.btn-row-apply:hover { color:var(--green); border-color:var(--green); background:var(--green-glow); }
+.btn-row-apply.applied {
+  color:var(--green); border-color:var(--green);
+  background:var(--green-glow);
+}
+tr.row-applied { background: rgba(62,207,142,.04); }
+tr.row-applied td:first-child { border-left: 2px solid var(--green); }
+
 /* Empty state */
 .empty-state {
   text-align:center; padding:60px 24px; color:var(--muted);
@@ -734,6 +749,12 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
       <option value="3">Score ≥ 3</option>
     </select>
 
+    <select class="sel-sm" id="f-applied" onchange="filterJobs()">
+      <option value="">Todas</option>
+      <option value="pending">Sin responder</option>
+      <option value="applied">Respondidas ✓</option>
+    </select>
+
     <button class="btn btn-ghost" onclick="loadJobs()" style="padding:7px 12px;font-size:12px">
       ↻ Actualizar
     </button>
@@ -755,6 +776,7 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
           <th>Idioma</th>
           <th onclick="sortBy('ai_score',this)">Score</th>
           <th>Notas IA</th>
+          <th>Estado</th>
           <th></th>
         </tr>
       </thead>
@@ -1146,15 +1168,18 @@ async function loadJobs() {
 }
 
 function filterJobs() {
-  const search   = (document.getElementById('f-search').value || '').toLowerCase();
-  const remF     = document.getElementById('f-remote').value;
-  const langF    = document.getElementById('f-lang').value;
-  const scoreF   = parseInt(document.getElementById('f-score').value) || 0;
+  const search    = (document.getElementById('f-search').value || '').toLowerCase();
+  const remF      = document.getElementById('f-remote').value;
+  const langF     = document.getElementById('f-lang').value;
+  const scoreF    = parseInt(document.getElementById('f-score').value) || 0;
+  const appliedF  = document.getElementById('f-applied').value;
 
   let jobs = allJobs.filter(j => {
     if (remF === 'remote' && !j.is_remote) return false;
     if (langF && j.lang && j.lang !== 'unknown' && j.lang !== langF) return false;
     if (scoreF && (j.ai_score || 0) < scoreF) return false;
+    if (appliedF === 'applied'  && !j.applied) return false;
+    if (appliedF === 'pending'  &&  j.applied) return false;
     if (search) {
       const hay = ((j.title || '') + ' ' + (j.company || '')).toLowerCase();
       if (!hay.includes(search)) return false;
@@ -1195,20 +1220,21 @@ function renderJobs(jobs) {
   }
 
   tbody.innerHTML = jobs.map(j => {
-    const av    = companyAvatar(j.company);
-    const date  = relativeDate(j.posted_at);
-    const score = renderScore(j.ai_score);
-    const rem   = j.is_remote
+    const av      = companyAvatar(j.company);
+    const date    = relativeDate(j.posted_at);
+    const score   = renderScore(j.ai_score);
+    const rem     = j.is_remote
       ? `<span class="badge-remote"><span class="pulse-dot"></span>Remoto</span>`
       : `<span class="badge-office">🏢 Presencial</span>`;
-    const lang  = renderLang(j.lang);
-    const notes = j.ai_notes
+    const lang    = renderLang(j.lang);
+    const notes   = j.ai_notes
       ? `<div class="note-cell" title="${esc(j.ai_notes)}"><span>${esc(j.ai_notes)}</span></div>`
       : `<span style="color:var(--muted);font-size:11px">—</span>`;
-    const url   = j.url ? `href="${esc(j.url)}" target="_blank" rel="noopener"` : '';
-    const jid   = esc(String(j.job_id || ''));
+    const url     = j.url ? `href="${esc(j.url)}" target="_blank" rel="noopener"` : '';
+    const jid     = esc(String(j.job_id || ''));
+    const applied = !!j.applied;
 
-    return `<tr>
+    return `<tr class="${applied ? 'row-applied' : ''}">
       <td style="white-space:nowrap;color:var(--text2);font-size:12px">${date}</td>
       <td class="job-title">
         <a ${url}>${esc(j.title || '—')}</a>
@@ -1227,6 +1253,13 @@ function renderJobs(jobs) {
       <td>${lang}</td>
       <td>${score}</td>
       <td>${notes}</td>
+      <td>
+        <button class="btn-row-apply ${applied ? 'applied' : ''}"
+                title="${applied ? 'Marcar como pendiente' : 'Marcar como respondida'}"
+                onclick="toggleApplied('${jid}', this)">
+          ${applied ? '✓ Respondida' : 'Responder'}
+        </button>
+      </td>
       <td>
         <button class="btn-row-del" title="Eliminar oferta" onclick="deleteJob('${jid}',this)">✕</button>
       </td>
@@ -1276,6 +1309,39 @@ function esc(s) {
   return String(s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;');
+}
+
+async function toggleApplied(jobId, btn) {
+  const isApplied = btn.classList.contains('applied');
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/api/jobs/${jobId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ applied: !isApplied }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    // Actualizar estado en allJobs
+    const job = allJobs.find(j => String(j.job_id) === jobId);
+    if (job) job.applied = !isApplied;
+    // Actualizar UI sin recargar toda la tabla
+    const tr = btn.closest('tr');
+    if (!isApplied) {
+      btn.classList.add('applied');
+      btn.textContent = '✓ Respondida';
+      btn.title = 'Marcar como pendiente';
+      tr.classList.add('row-applied');
+    } else {
+      btn.classList.remove('applied');
+      btn.textContent = 'Responder';
+      btn.title = 'Marcar como respondida';
+      tr.classList.remove('row-applied');
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function deleteJob(jobId, btn) {

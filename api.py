@@ -489,6 +489,25 @@ async def delete_discarded_job(job_id: str):
     return {"deleted": True, "remaining": len(discarded)}
 
 
+@app.patch("/api/jobs/{job_id}", summary="Actualizar campos de una oferta")
+async def patch_job(job_id: str, body: dict):
+    """
+    Actualiza campos concretos de una oferta sin reescribir el objeto entero.
+    Usado para marcar/desmarcar como respondida manualmente:
+      PATCH /api/jobs/{id}  body: {"applied": true}
+    """
+    jobs = load_jobs()
+    for job in jobs:
+        if str(job.get("job_id")) == job_id:
+            job.update(body)
+            # Si se marca como respondida, guardar timestamp; si se desmarca, limpiarlo
+            if "applied" in body:
+                job["applied_at"] = datetime.now().isoformat() if body["applied"] else None
+            save_jobs(jobs)
+            return {"updated": True, "job": job}
+    raise HTTPException(status_code=404, detail="Trabajo no encontrado")
+
+
 @app.delete("/api/jobs/{job_id}", summary="Eliminar una oferta")
 async def delete_job(job_id: str):
     """Elimina un trabajo de jobs.json por su job_id numérico."""
