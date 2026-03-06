@@ -738,6 +738,10 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
       ↻ Actualizar
     </button>
     <span class="filter-count" id="job-count">0 ofertas</span>
+
+    <button class="btn btn-ghost btn-discarded-toggle" id="btn-discarded" onclick="toggleDiscarded()" style="margin-left:auto;padding:7px 12px;font-size:12px;color:var(--muted)">
+      🗑 Descartadas (<span id="discarded-count">0</span>)
+    </button>
   </div>
 
   <div class="table-wrap">
@@ -758,6 +762,34 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
         <tr><td colspan="8"><div class="empty-state"><div class="ei">⏳</div><p>Cargando…</p></div></td></tr>
       </tbody>
     </table>
+  </div>
+
+  <!-- Sección de descartadas (oculta por defecto) -->
+  <div id="discarded-section" style="display:none;margin-top:32px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.05em;text-transform:uppercase">
+        🗑 Ofertas descartadas
+      </div>
+      <button class="btn btn-ghost" onclick="toggleDiscarded()" style="padding:5px 10px;font-size:12px">
+        ✕ Cerrar
+      </button>
+    </div>
+    <div class="table-wrap" style="opacity:.8">
+      <table>
+        <thead>
+          <tr>
+            <th>Descartada</th>
+            <th>Puesto</th>
+            <th>Empresa</th>
+            <th>Motivo</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="discarded-body">
+          <tr><td colspan="5"><div class="empty-state"><div class="ei">🗑</div><p>Sin descartadas</p></div></td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -917,8 +949,8 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Eliminar con score &lt;</label>
-            <input type="number" id="c-min-score" placeholder="ej. 5  (vacío = no eliminar)" min="1" max="10">
+            <label class="form-label">Eliminar con score &lt; <span style="color:var(--muted);font-weight:400;font-size:11px">— vacío = no elimina nada</span></label>
+            <input type="number" id="c-min-score" placeholder="vacío = no eliminar" min="1" max="10">
           </div>
         </div>
       </div>
@@ -927,8 +959,8 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
         <div class="card-title">Tu perfil</div>
         <div class="form-grid">
           <div class="form-group">
-            <label class="form-label">Rol buscado</label>
-            <input type="text" id="c-role" value="AI/ML Engineer" placeholder="ej. Backend Developer, Data Engineer">
+            <label class="form-label">Rol buscado <span style="color:var(--muted);font-weight:400;font-size:11px">— varios separados por coma</span></label>
+            <input type="text" id="c-role" value="AI/ML Engineer" placeholder="ej. AI Engineer, Data Engineer, MLOps">
           </div>
           <div class="form-group">
             <label class="form-label">Seniority</label>
@@ -943,11 +975,11 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
         </div>
         <div class="form-group" style="margin-top:12px">
           <label class="form-label">Stack que dominas <span style="color:var(--green);font-size:11px">↑ puntúan a favor</span></label>
-          <textarea id="c-stack-yes" style="min-height:60px" placeholder="ej. Python, PyTorch, LangChain, FastAPI, AWS">Python, PyTorch, LangChain, FastAPI, AWS, OpenAI API</textarea>
+          <textarea id="c-stack-yes" style="min-height:60px" placeholder="ej. Python, PyTorch, LangChain, FastAPI, AWS">Python, PyTorch, LangChain, FastAPI, AWS, OpenAI API, Angular, JavaScript, TypeScript, Node.js, RAG, MongoDB, PostgreSQL, React, Next.js, Redis, Git</textarea>
         </div>
         <div class="form-group" style="margin-top:12px">
           <label class="form-label">Stack / tecnologías a evitar <span style="color:var(--red);font-size:11px">↓ penalizan el score</span></label>
-          <textarea id="c-stack-no" style="min-height:60px" placeholder="ej. Java, .NET, PHP, SAP, COBOL"></textarea>
+          <textarea id="c-stack-no" style="min-height:60px" placeholder="ej. Java, .NET, PHP, SAP, COBOL">.NET, Ruby, Java</textarea>
         </div>
         <div class="form-group" style="margin-top:12px">
           <label class="form-label">Preferencias adicionales <span style="color:var(--muted);font-size:11px">(texto libre)</span></label>
@@ -1389,7 +1421,8 @@ let cleanES = null;
 
 async function startCleaning() {
   const model       = document.getElementById('c-model').value;
-  const role        = document.getElementById('c-role').value.trim();
+  const role        = document.getElementById('c-role').value
+                        .split(',').map(r => r.trim()).filter(Boolean).join(' / ');
   const seniority   = document.getElementById('c-seniority').value;
   const stackYes    = document.getElementById('c-stack-yes').value
                         .split(',').map(s => s.trim()).filter(Boolean);
@@ -1444,8 +1477,70 @@ function now() {
 // ═══════════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════
+// DESCARTADAS
+// ═══════════════════════════════════════════════════════════════════════
+let discardedVisible = false;
+
+async function loadDiscardedCount() {
+  try {
+    const data = await API.get('/api/discarded');
+    document.getElementById('discarded-count').textContent = data.total || 0;
+  } catch(_) {}
+}
+
+async function toggleDiscarded() {
+  discardedVisible = !discardedVisible;
+  const section = document.getElementById('discarded-section');
+  section.style.display = discardedVisible ? 'block' : 'none';
+  if (discardedVisible) await renderDiscarded();
+}
+
+async function renderDiscarded() {
+  const tbody = document.getElementById('discarded-body');
+  tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="ei">⏳</div><p>Cargando…</p></div></td></tr>`;
+  try {
+    const data = await API.get('/api/discarded');
+    document.getElementById('discarded-count').textContent = data.total || 0;
+    const jobs = data.jobs || [];
+    if (!jobs.length) {
+      tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="ei">🗑</div><p>Sin ofertas descartadas</p></div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = jobs.map(j => {
+      const jid  = esc(String(j.job_id || ''));
+      const url  = j.url ? `href="${esc(j.url)}" target="_blank" rel="noopener"` : '';
+      const date = (j.discarded_at || '').slice(0, 10) || '—';
+      return `<tr>
+        <td style="color:var(--text2);font-size:12px;white-space:nowrap">${date}</td>
+        <td class="job-title"><a ${url}>${esc(j.title || '—')}</a></td>
+        <td><span class="company-name">${esc(j.company || '—')}</span></td>
+        <td style="color:var(--muted);font-size:12px">${esc(j.discard_reason || '—')}</td>
+        <td><button class="btn-row-del" title="Eliminar permanentemente" onclick="deleteDiscarded('${jid}',this)">✕</button></td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--red);padding:16px">${e.message}</td></tr>`;
+  }
+}
+
+async function deleteDiscarded(jobId, btn) {
+  btn.disabled = true;
+  try {
+    await API.del(`/api/discarded/${jobId}`);
+    const tr = btn.closest('tr');
+    tr.style.transition = 'opacity .3s';
+    tr.style.opacity = '0';
+    setTimeout(() => { tr.remove(); loadDiscardedCount(); }, 300);
+  } catch(e) {
+    btn.disabled = false;
+    alert('Error: ' + e.message);
+  }
+}
+
 loadStats();
 loadJobs();
+loadDiscardedCount();
 setInterval(loadStats, 12000); // refresh stats every 12s
 </script>
 </body>

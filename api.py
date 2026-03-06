@@ -46,8 +46,9 @@ app.add_middleware(
 )
 
 # Rutas de archivos
-JOBS_FILE  = Path("jobs.json")
-STATIC_DIR = Path("static")
+JOBS_FILE       = Path("jobs.json")
+DISCARDED_FILE  = Path("jobs_discarded.json")   # ofertas descartadas durante el scraping
+STATIC_DIR      = Path("static")
 
 # ─── StreamManager ────────────────────────────────────────────────────────────
 
@@ -174,6 +175,21 @@ def save_jobs(jobs: list[dict]):
     """Serializa la lista de trabajos a jobs.json."""
     with open(JOBS_FILE, "w", encoding="utf-8") as f:
         json.dump(jobs, f, ensure_ascii=False, indent=2)
+
+
+def load_discarded() -> dict:
+    """Lee jobs_discarded.json y devuelve {job_id: job}. Devuelve {} si no existe."""
+    if not DISCARDED_FILE.exists():
+        return {}
+    with open(DISCARDED_FILE, encoding="utf-8") as f:
+        jobs = json.load(f)
+    return {str(j["job_id"]): j for j in jobs if j.get("job_id")}
+
+
+def save_discarded(discarded: dict):
+    """Guarda el dict {job_id: job} de descartados en jobs_discarded.json."""
+    with open(DISCARDED_FILE, "w", encoding="utf-8") as f:
+        json.dump(list(discarded.values()), f, ensure_ascii=False, indent=2)
 
 
 # Palabras clave para detección de remoto en la API
@@ -409,6 +425,25 @@ async def get_jobs(
     return {"jobs": jobs, "total": len(jobs)}
 
 
+@app.get("/api/discarded", summary="Listar ofertas descartadas")
+async def get_discarded():
+    """Devuelve las ofertas descartadas durante el scraping, ordenadas por fecha."""
+    discarded = list(load_discarded().values())
+    discarded.sort(key=lambda j: j.get("discarded_at") or "", reverse=True)
+    return {"jobs": discarded, "total": len(discarded)}
+
+
+@app.delete("/api/discarded/{job_id}", summary="Eliminar una oferta descartada")
+async def delete_discarded_job(job_id: str):
+    """Elimina permanentemente una oferta del archivo de descartadas."""
+    discarded = load_discarded()
+    if job_id not in discarded:
+        raise HTTPException(status_code=404, detail="Trabajo no encontrado en descartadas")
+    del discarded[job_id]
+    save_discarded(discarded)
+    return {"deleted": True, "remaining": len(discarded)}
+
+
 @app.delete("/api/jobs/{job_id}", summary="Eliminar una oferta")
 async def delete_job(job_id: str):
     """Elimina un trabajo de jobs.json por su job_id numérico."""
@@ -474,10 +509,12 @@ async def start_scrape(params: ScrapeParams):
                 f"remote_only={params.remote_only} | days_window={params.days_window}d"
             )
 
-            existing = load_existing()
+            existing          = load_existing()
+            discarded_existing = load_discarded()   # descartados de sesiones anteriores
             scrape_mgr.log(f"Trabajos existentes en disco: {len(existing)}")
 
-            new_jobs: dict = {}
+            new_jobs:      dict = {}
+            discarded_new: dict = {}   # descartados en esta sesión
 
             def incremental_save():
                 """Escribe el estado actual en jobs.json sin esperar al final."""
@@ -572,10 +609,11 @@ async def start_scrape(params: ScrapeParams):
 
                     # Aplicar filtro de idioma si está configurado
                     if params.lang_filter and lang not in ("unknown", params.lang_filter):
-                        scrape_mgr.log(
-                            f"  Excluida: descripción en '{lang}' (filtro: solo '{params.lang_filter}')",
-                            "warning",
-                        )
+                        reason = f"Descripción en '{lang}' — filtro activo: solo '{params.lang_filter}'"
+                        scrape_mgr.log(f"  Descartada: {reason}", "warning")
+                        job["discard_reason"] = reason
+                        job["discarded_at"]   = datetime.now().isoformat()
+                        discarded_new[jid]    = job
                         del new_jobs[jid]
                         skipped_lang += 1
                     else:
@@ -599,6 +637,13 @@ async def start_scrape(params: ScrapeParams):
 
             # ── Guardado final canónico ────────────────────────────────────────
             incremental_save()
+
+            # Persistir descartados (merge con los de sesiones anteriores)
+            if discarded_new:
+                save_discarded({**discarded_existing, **discarded_new})
+                scrape_mgr.log(
+                    f"  {len(discarded_new)} oferta(s) guardadas en descartadas.", "info"
+                )
 
             if scrape_mgr.stop_requested:
                 scrape_mgr.done(f"Parado. {len(new_jobs)} trabajos guardados en disco.")
@@ -701,20 +746,22 @@ async def start_clean(params: CleanParams):
 
             system_prompt = (
                 f"Eres un evaluador experto de ofertas de trabajo. Evalúa cada oferta para este candidato:\n\n"
-                f"  Rol buscado:          {params.role} — nivel {params.seniority}\n"
-                f"  Stack que domina:     {stack_yes_str}\n"
-                f"  Stack a evitar:       {stack_no_str}"
+                f"  Rol buscado:    {params.role} (referencia orientativa de nivel: {params.seniority})\n"
+                f"  Stack que domina:  {stack_yes_str}\n"
+                f"  Stack a evitar:    {stack_no_str}"
                 f"{extra_block}\n\n"
-                "CRITERIOS DE PUNTUACIÓN (score 1-10):\n"
-                "  9-10 → Encaje excelente: rol exacto, stack muy alineado, nivel correcto\n"
-                "  7-8  → Buen encaje con algún mismatch menor de stack o nivel\n"
-                "  5-6  → Encaje parcial: stack diferente pero rol similar, o nivel no exacto\n"
-                "  3-4  → Mismatch significativo de tecnología o nivel\n"
-                "  1-2  → No encaja: tecnología completamente distinta, nivel incorrecto\n\n"
+                "CRITERIOS DE PUNTUACIÓN (score 1–10):\n"
+                "  El criterio MÁS IMPORTANTE es el encaje de stack tecnológico.\n"
+                "  El seniority indicado en la oferta tiene POCO PESO — las empresas suelen\n"
+                "  poner niveles arbitrarios; ignóralo o dále importancia mínima.\n\n"
+                "  9–10 → Stack muy alineado, rol encaja perfectamente\n"
+                "  7–8  → Stack mayoritariamente alineado, algún mismatch menor\n"
+                "  5–6  → Stack parcialmente alineado o rol similar pero diferente\n"
+                "  3–4  → Stack bastante distinto del dominado\n"
+                "  1–2  → Stack completamente distinto o rol incompatible\n\n"
                 "PENALIZA CON SCORE ≤ 3 si:\n"
                 "  - La oferta requiere principalmente tecnologías del stack a evitar\n"
-                "  - El nivel de seniority no corresponde al buscado\n"
-                "  - La descripción contradice las preferencias adicionales\n\n"
+                "  - La descripción contradice claramente las preferencias adicionales\n\n"
                 "Responde SIEMPRE en JSON con exactamente estos campos:\n"
                 "{\n"
                 '  "score": <entero 1-10>,\n'

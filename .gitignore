@@ -18,6 +18,7 @@ env/
 
 # Data / output files
 jobs.json
+jobs_discarded.json
 
 # IDE
 .vscode/
