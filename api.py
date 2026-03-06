@@ -848,7 +848,7 @@ async def start_clean(params: CleanParams):
                             {"role": "user",   "content": user_content},
                         ],
                         response_format=JobEvaluation,
-                        max_completion_tokens=200,
+                        max_completion_tokens=2500,  # thinking models necesitan tokens para razonamiento interno + output
                     )
 
                     result: JobEvaluation = resp.choices[0].message.parsed
