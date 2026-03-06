@@ -1,0 +1,1383 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Job Agent</title>
+<style>
+/* ══════════════════════════════════════════════════════════════════
+   DESIGN TOKENS
+══════════════════════════════════════════════════════════════════ */
+:root {
+  --bg:           #07090f;
+  --s1:           #0c1220;
+  --s2:           #101929;
+  --s3:           #141f30;
+  --s4:           #192638;
+  --border:       rgba(79,148,230,.1);
+  --border-hi:    rgba(79,148,230,.25);
+  --text:         #d8eaf8;
+  --text2:        #7da4c0;
+  --muted:        #3d5a72;
+  --accent:       #4f94e6;
+  --accent-glow:  rgba(79,148,230,.14);
+  --accent-hi:    rgba(79,148,230,.3);
+  --green:        #3ecf8e;
+  --green-glow:   rgba(62,207,142,.12);
+  --amber:        #f5a623;
+  --amber-glow:   rgba(245,166,35,.12);
+  --red:          #f26060;
+  --red-glow:     rgba(242,96,96,.12);
+  --r:            8px;
+  --r-lg:         12px;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   BASE
+══════════════════════════════════════════════════════════════════ */
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* Subtle radial mesh in the background */
+body::before {
+  content:'';
+  position:fixed; inset:0; pointer-events:none; z-index:0;
+  background:
+    radial-gradient(ellipse 60% 40% at 15% 5%, rgba(79,148,230,.05) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 85% 90%, rgba(62,207,142,.03) 0%, transparent 70%);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width:5px; height:5px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--s4); border-radius:3px; }
+::-webkit-scrollbar-thumb:hover { background:var(--muted); }
+
+/* ══════════════════════════════════════════════════════════════════
+   HEADER
+══════════════════════════════════════════════════════════════════ */
+header {
+  position: sticky; top:0; z-index:200;
+  background: rgba(7,9,15,.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 60px;
+}
+
+.logo {
+  display: flex; align-items: center; gap: 9px;
+  flex-shrink: 0;
+}
+.logo-icon {
+  width: 28px; height: 28px; border-radius: 7px;
+  background: linear-gradient(135deg, #3a7bd5, #6c5ce7);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  box-shadow: 0 0 16px rgba(79,148,230,.3);
+}
+.logo-text {
+  font-size: 14px; font-weight: 700; letter-spacing: .3px;
+  background: linear-gradient(135deg, #a8caef, #6c9fd8);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.logo-badge {
+  font-size: 10px; font-weight: 600; color: var(--muted);
+  background: var(--s2); border: 1px solid var(--border);
+  padding: 1px 6px; border-radius: 10px;
+}
+
+.stat-row {
+  display: flex; gap: 4px; flex:1;
+}
+.stat-card {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px;
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  min-width: 0;
+  flex: 1;
+  transition: border-color .2s;
+}
+.stat-card:hover { border-color: var(--border-hi); }
+.stat-icon { font-size: 18px; flex-shrink:0; }
+.stat-info { min-width:0; }
+.stat-val {
+  font-size: 20px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.stat-val.blue  { color: var(--accent); }
+.stat-val.green { color: var(--green); }
+.stat-val.amber { color: var(--amber); }
+.stat-val.muted { color: var(--text2); font-size: 13px; }
+.stat-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-top: 1px; }
+
+.status-group { display:flex; gap:8px; flex-shrink:0; }
+.status-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 11px; font-weight: 600;
+  border: 1px solid transparent;
+  transition: all .3s;
+}
+.status-pill.idle {
+  background: var(--s2); border-color: var(--border); color: var(--muted);
+}
+.status-pill.running {
+  background: var(--green-glow); border-color: rgba(62,207,142,.3); color: var(--green);
+}
+.status-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+}
+.status-pill.running .status-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%,100% { opacity:1; transform:scale(1); }
+  50%      { opacity:.4; transform:scale(.7); }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   NAVIGATION
+══════════════════════════════════════════════════════════════════ */
+nav {
+  position: sticky; top: 60px; z-index: 190;
+  background: rgba(7,9,15,.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  position: relative;
+}
+
+/* Sliding indicator */
+nav::after {
+  content: '';
+  position: absolute; bottom: 0; left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), #7c5ce7);
+  border-radius: 1px 1px 0 0;
+  transition: transform .25s cubic-bezier(.4,0,.2,1), width .25s cubic-bezier(.4,0,.2,1);
+  width: var(--tab-w, 90px);
+  transform: translateX(var(--tab-x, 24px));
+}
+
+.tab-btn {
+  display: flex; align-items: center; gap: 7px;
+  background: none; border: none; color: var(--text2);
+  padding: 14px 16px 12px;
+  cursor: pointer; font-size: 13px; font-weight: 500;
+  transition: color .15s;
+  white-space: nowrap;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); }
+.tab-btn .tab-icon { font-size: 15px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   MAIN
+══════════════════════════════════════════════════════════════════ */
+main { position:relative; z-index:1; padding: 20px 24px; }
+
+.tab-pane { display: none; animation: fadein .2s ease; }
+.tab-pane.active { display: block; }
+@keyframes fadein { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+
+/* ══════════════════════════════════════════════════════════════════
+   CARDS / PANELS
+══════════════════════════════════════════════════════════════════ */
+.card {
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 18px 20px;
+  margin-bottom: 14px;
+}
+.card:last-child { margin-bottom: 0; }
+
+.card-title {
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .6px;
+  color: var(--muted);
+  margin-bottom: 14px;
+  display: flex; align-items: center; gap: 8px;
+}
+.card-title::before {
+  content: '';
+  display: block; width: 3px; height: 12px;
+  background: linear-gradient(180deg, var(--accent), #7c5ce7);
+  border-radius: 2px;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   FORMS
+══════════════════════════════════════════════════════════════════ */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.form-group { display:flex; flex-direction:column; gap:5px; }
+.form-label {
+  font-size: 11px; font-weight: 600; color: var(--text2); letter-spacing:.2px;
+  display: flex; align-items: center; gap: 5px;
+}
+.param-tag {
+  font-size: 9px; font-weight: 600; font-family: monospace;
+  color: var(--muted); background: var(--s3);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 1px 4px;
+}
+
+input[type=text],input[type=number],select,textarea {
+  background: var(--s2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--r);
+  padding: 8px 11px;
+  font-size: 13px; font-family: inherit;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  width: 100%;
+}
+input:focus,select:focus,textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+select { cursor:pointer; }
+textarea { min-height: 80px; resize: vertical; }
+
+/* ── Toggle switches ── */
+.toggle-row { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:12px; }
+
+.toggle-item {
+  display: flex; align-items: center; gap: 9px;
+  cursor: pointer; font-size: 12.5px; color: var(--text2);
+  user-select: none;
+}
+.toggle-item:hover { color: var(--text); }
+
+.sw {
+  position: relative; width: 36px; height: 20px; flex-shrink: 0;
+}
+.sw input { display: none; }
+.sw-track {
+  position: absolute; inset: 0;
+  background: var(--s3); border: 1px solid var(--border);
+  border-radius: 10px; cursor: pointer;
+  transition: background .2s, border-color .2s;
+}
+.sw-track::before {
+  content: '';
+  position: absolute;
+  width: 14px; height: 14px;
+  background: var(--muted); border-radius: 50%;
+  top: 2px; left: 2px;
+  transition: transform .2s, background .2s;
+}
+.sw input:checked ~ .sw-track {
+  background: var(--accent-glow);
+  border-color: rgba(79,148,230,.45);
+}
+.sw input:checked ~ .sw-track::before {
+  transform: translateX(16px);
+  background: var(--accent);
+}
+
+/* ── Pill button groups (job types / exp levels) ── */
+.pill-group { display:flex; gap:5px; flex-wrap:wrap; }
+.pill-item input[type=checkbox] { display:none; }
+.pill-item label {
+  display: block;
+  padding: 4px 12px; border-radius: 20px;
+  font-size: 11.5px; font-weight: 500; cursor: pointer;
+  border: 1px solid var(--border); color: var(--text2);
+  background: var(--s2);
+  transition: all .15s;
+  line-height: 1.4;
+}
+.pill-item label:hover { border-color: var(--border-hi); color: var(--text); }
+.pill-item input:checked + label {
+  background: var(--accent-glow); border-color: rgba(79,148,230,.4); color: var(--accent);
+}
+.exp-1:checked + label,.exp-2:checked + label { background:var(--accent-glow);border-color:rgba(79,148,230,.4);color:var(--accent); }
+.exp-4:checked + label,.exp-5:checked + label { background:var(--green-glow);border-color:rgba(62,207,142,.35);color:var(--green); }
+.exp-6:checked + label { background:var(--amber-glow);border-color:rgba(245,166,35,.35);color:var(--amber); }
+
+/* ══════════════════════════════════════════════════════════════════
+   BUTTONS
+══════════════════════════════════════════════════════════════════ */
+.btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 16px; border-radius: var(--r);
+  border: none; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: opacity .15s, transform .1s;
+  font-family: inherit;
+}
+.btn:disabled { opacity:.35; cursor:not-allowed; transform:none !important; }
+.btn:hover:not(:disabled) { opacity:.88; }
+.btn:active:not(:disabled) { transform:scale(.98); }
+
+.btn-ghost {
+  background: var(--s2); color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover:not(:disabled) { border-color: var(--border-hi); opacity:1; }
+
+.btn-launch {
+  width: 100%; justify-content: center; padding: 11px;
+  background: linear-gradient(135deg, #3a7bd5 0%, #6c5ce7 100%);
+  color: #fff; font-size: 14px;
+  border-radius: var(--r);
+  box-shadow: 0 4px 24px rgba(58,123,213,.3);
+  transition: transform .15s, box-shadow .15s, opacity .15s;
+}
+.btn-launch:hover:not(:disabled) {
+  opacity: 1;
+  transform: translateY(-1px);
+  box-shadow: 0 7px 30px rgba(58,123,213,.45);
+}
+
+.btn-launch-green {
+  background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
+  box-shadow: 0 4px 24px rgba(5,150,105,.3);
+}
+.btn-launch-green:hover:not(:disabled) {
+  box-shadow: 0 7px 30px rgba(5,150,105,.45);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   TWO-COLUMN LAYOUT (scraping + cleaning tabs)
+══════════════════════════════════════════════════════════════════ */
+.two-col {
+  display: grid;
+  grid-template-columns: 400px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 1000px) {
+  .two-col { grid-template-columns: 1fr; }
+}
+.col-config { display:flex; flex-direction:column; gap:14px; }
+.col-console { position: sticky; top: 116px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   CONSOLE / TERMINAL
+══════════════════════════════════════════════════════════════════ */
+.terminal {
+  background: #030608;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.terminal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--s1);
+  border-bottom: 1px solid var(--border);
+}
+.terminal-dots { display:flex; gap:6px; }
+.terminal-dots span {
+  width: 10px; height: 10px; border-radius: 50%;
+}
+.dot-red    { background:#f25f5c55; border:1px solid #f25f5c88; }
+.dot-amber  { background:#f5a62355; border:1px solid #f5a62388; }
+.dot-green  { background:#3ecf8e55; border:1px solid #3ecf8e88; }
+.terminal-label {
+  font-size: 11px; color: var(--muted);
+  font-family: "JetBrains Mono","Fira Code","SF Mono",Consolas,monospace;
+}
+.terminal-clear {
+  background:none; border:none; color:var(--muted); cursor:pointer;
+  font-size:11px; font-family:inherit; padding:2px 8px;
+  border-radius:4px; transition: color .15s;
+}
+.terminal-clear:hover { color:var(--text); }
+
+.console-body {
+  height: 420px; overflow-y: auto; padding: 12px 14px;
+  font-family: "JetBrains Mono","Fira Code","SF Mono",Consolas,monospace;
+  font-size: 11.5px; line-height: 1.6;
+}
+.log-line {
+  display: flex; gap: 10px; padding: 1px 0;
+}
+.log-ts { color: #2a4a62; flex-shrink:0; font-size:10.5px; padding-top:1px; }
+.log-msg { word-break:break-all; }
+.log-info    .log-msg { color: #7da4c0; }
+.log-success .log-msg { color: var(--green); }
+.log-warning .log-msg { color: var(--amber); }
+.log-error   .log-msg { color: var(--red); }
+.log-done    .log-msg { color: var(--accent); font-weight:600; }
+.log-separator .log-msg { color: #1a3045; }
+
+/* ══════════════════════════════════════════════════════════════════
+   JOBS TABLE
+══════════════════════════════════════════════════════════════════ */
+.filter-bar {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.search-wrap { position:relative; flex:1; min-width:200px; max-width:320px; }
+.search-icon {
+  position:absolute; left:10px; top:50%; transform:translateY(-50%);
+  color: var(--muted); font-size:13px; pointer-events:none;
+}
+.search-input {
+  padding-left: 30px !important;
+}
+.filter-count {
+  margin-left: auto;
+  font-size: 11.5px; color: var(--muted);
+  background: var(--s1); border: 1px solid var(--border);
+  padding: 5px 12px; border-radius: 20px;
+  white-space: nowrap;
+}
+
+.table-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  overflow-x: auto;
+}
+table { width:100%; border-collapse:collapse; }
+thead th {
+  background: var(--s1);
+  padding: 10px 14px;
+  text-align: left; white-space: nowrap;
+  font-size: 10.5px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .5px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer; user-select:none;
+  transition: color .15s;
+}
+thead th:hover { color: var(--text2); }
+thead th.sorted { color: var(--accent); }
+thead th.sorted::after { content: ' ↓'; }
+thead th.sorted.asc::after { content: ' ↑'; }
+
+tbody td {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(79,148,230,.05);
+  vertical-align: middle;
+}
+tbody tr:last-child td { border-bottom:none; }
+tbody tr {
+  transition: background .12s;
+}
+tbody tr:hover td { background: rgba(79,148,230,.04); }
+
+/* Company avatar */
+.company-av {
+  width: 30px; height: 30px; border-radius: 7px;
+  display: flex; align-items:center; justify-content:center;
+  font-size: 11px; font-weight: 700; flex-shrink:0;
+  background: hsl(var(--av-hue), 30%, 18%);
+  border: 1px solid hsl(var(--av-hue), 35%, 28%);
+  color: hsl(var(--av-hue), 50%, 65%);
+}
+.company-cell { display:flex; align-items:center; gap:9px; }
+.company-name { font-size:12.5px; color:var(--text2); }
+
+.job-title a {
+  color: var(--text); text-decoration:none; font-weight:500; font-size:13px;
+  transition: color .12s;
+}
+.job-title a:hover { color: var(--accent); }
+.kw-tag {
+  display:inline-block; margin-top:3px;
+  font-size: 10px; color: var(--muted);
+  background: var(--s2); border: 1px solid var(--border);
+  padding: 1px 7px; border-radius: 10px;
+}
+
+/* Location / remote badge */
+.badge-remote {
+  display: inline-flex; align-items:center; gap:5px;
+  font-size: 11px; font-weight: 600;
+  color: var(--green);
+  background: var(--green-glow); border: 1px solid rgba(62,207,142,.25);
+  padding: 2px 8px; border-radius: 20px;
+}
+.badge-office {
+  display: inline-flex; align-items:center; gap:5px;
+  font-size: 11px; font-weight: 600;
+  color: var(--muted); background: var(--s2); border: 1px solid var(--border);
+  padding: 2px 8px; border-radius: 20px;
+}
+.pulse-dot {
+  width:5px; height:5px; border-radius:50%;
+  background:var(--green);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+.loc-text { font-size:11px; color:var(--muted); margin-top:4px; }
+
+/* Language badge */
+.badge-lang-es {
+  display:inline-block; font-size:10px; font-weight:700;
+  padding:1px 6px; border-radius:4px;
+  background:rgba(62,207,142,.1); color:var(--green); border:1px solid rgba(62,207,142,.25);
+}
+.badge-lang-en {
+  display:inline-block; font-size:10px; font-weight:700;
+  padding:1px 6px; border-radius:4px;
+  background:rgba(79,148,230,.1); color:var(--accent); border:1px solid rgba(79,148,230,.25);
+}
+.badge-lang-unknown {
+  display:inline-block; font-size:10px; font-weight:700;
+  padding:1px 6px; border-radius:4px;
+  background:var(--s2); color:var(--muted); border:1px solid var(--border);
+}
+
+/* Score ring (conic-gradient trick) */
+.score-ring {
+  width: 32px; height: 32px; border-radius: 50%; position:relative;
+  display:flex; align-items:center; justify-content:center;
+  background: conic-gradient(
+    var(--ring-c) 0% calc(var(--ring-p) * 1%),
+    rgba(255,255,255,.04) calc(var(--ring-p) * 1%) 100%
+  );
+}
+.score-ring::before {
+  content:''; position:absolute; inset:3px;
+  background:var(--s2); border-radius:50%;
+}
+.score-ring span {
+  position:relative; z-index:1;
+  font-size:11px; font-weight:700; color:var(--ring-c);
+}
+.score-na {
+  width:32px; height:32px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--s2); border:1px solid var(--border);
+  font-size:9px; color:var(--muted);
+}
+
+.note-cell { font-size:11.5px; color:var(--text2); max-width:160px; }
+.note-cell span {
+  display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+
+.btn-row-del {
+  background:none; border:none; cursor:pointer;
+  color:var(--muted); padding:5px 6px; border-radius:5px;
+  font-size:14px; transition:color .12s, background .12s;
+}
+.btn-row-del:hover { color:var(--red); background:var(--red-glow); }
+
+/* Empty state */
+.empty-state {
+  text-align:center; padding:60px 24px; color:var(--muted);
+}
+.empty-state .ei { font-size:40px; margin-bottom:12px; opacity:.5; }
+.empty-state p { font-size:13px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   SELECT (filter bar)
+══════════════════════════════════════════════════════════════════ */
+.sel-sm {
+  width: auto; padding: 7px 10px;
+  font-size: 12px; background:var(--s1);
+  border:1px solid var(--border); color:var(--text2);
+  border-radius: var(--r); cursor:pointer; outline:none;
+  transition: border-color .15s;
+}
+.sel-sm:hover { border-color:var(--border-hi); }
+.sel-sm:focus { border-color:var(--accent); }
+
+/* Section separator inside card */
+.section-sep {
+  font-size: 10.5px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .5px;
+  margin: 10px 0 8px;
+  display: flex; align-items: center; gap: 8px;
+}
+.section-sep .stag {
+  font-size: 9px; font-weight: 600; font-family: monospace;
+  color: var(--muted); background: var(--s3);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 1px 5px;
+}
+.section-sep::after {
+  content:''; flex:1; height:1px; background:var(--border);
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════
+     HEADER
+══════════════════════════════════════════════════════════════════ -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">🤖</div>
+    <span class="logo-text">Job Agent</span>
+    <span class="logo-badge">v1</span>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat-card">
+      <span class="stat-icon">📄</span>
+      <div class="stat-info">
+        <div class="stat-val blue" id="s-total">—</div>
+        <div class="stat-lbl">Total</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <span class="stat-icon">🌐</span>
+      <div class="stat-info">
+        <div class="stat-val green" id="s-remote">—</div>
+        <div class="stat-lbl">Remotas</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <span class="stat-icon">✦</span>
+      <div class="stat-info">
+        <div class="stat-val amber" id="s-scored">—</div>
+        <div class="stat-lbl">Puntuadas</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <span class="stat-icon">📅</span>
+      <div class="stat-info">
+        <div class="stat-val muted" id="s-date">—</div>
+        <div class="stat-lbl">Último scrape</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="status-group">
+    <div class="status-pill idle" id="badge-scrape">
+      <span class="status-dot"></span> Scraping
+    </div>
+    <div class="status-pill idle" id="badge-clean">
+      <span class="status-dot"></span> IA
+    </div>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════════════════════════════
+     NAVIGATION
+══════════════════════════════════════════════════════════════════ -->
+<nav id="nav">
+  <button class="tab-btn active" data-tab="jobs" onclick="switchTab(this)">
+    <span class="tab-icon">📋</span> Ofertas
+  </button>
+  <button class="tab-btn" data-tab="scrape" onclick="switchTab(this)">
+    <span class="tab-icon">🔍</span> Scraping
+  </button>
+  <button class="tab-btn" data-tab="clean" onclick="switchTab(this)">
+    <span class="tab-icon">✦</span> Limpieza IA
+  </button>
+</nav>
+
+<main>
+
+<!-- ══════════════════════════════════════════════════════════════
+     TAB: OFERTAS
+══════════════════════════════════════════════════════════════════ -->
+<div id="tab-jobs" class="tab-pane active">
+
+  <div class="filter-bar">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="text" class="search-input" id="f-search" placeholder="Buscar por título o empresa…" oninput="filterJobs()">
+    </div>
+
+    <select class="sel-sm" id="f-remote" onchange="filterJobs()">
+      <option value="remote">Solo remotas</option>
+      <option value="all">Todas</option>
+    </select>
+
+    <select class="sel-sm" id="f-lang" onchange="filterJobs()">
+      <option value="">Cualquier idioma</option>
+      <option value="es">Solo español 🇪🇸</option>
+      <option value="en">Solo inglés 🇬🇧</option>
+    </select>
+
+    <select class="sel-sm" id="f-score" onchange="filterJobs()">
+      <option value="">Todos los scores</option>
+      <option value="7">Score ≥ 7 ⭐</option>
+      <option value="5">Score ≥ 5</option>
+      <option value="3">Score ≥ 3</option>
+    </select>
+
+    <button class="btn btn-ghost" onclick="loadJobs()" style="padding:7px 12px;font-size:12px">
+      ↻ Actualizar
+    </button>
+    <span class="filter-count" id="job-count">0 ofertas</span>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th onclick="sortBy('posted_at',this)">Fecha</th>
+          <th onclick="sortBy('title',this)">Puesto</th>
+          <th onclick="sortBy('company',this)">Empresa</th>
+          <th>Ubicación</th>
+          <th>Idioma</th>
+          <th onclick="sortBy('ai_score',this)">Score</th>
+          <th>Notas IA</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="jobs-body">
+        <tr><td colspan="8"><div class="empty-state"><div class="ei">⏳</div><p>Cargando…</p></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     TAB: SCRAPING
+══════════════════════════════════════════════════════════════════ -->
+<div id="tab-scrape" class="tab-pane">
+  <div class="two-col">
+
+    <!-- Config -->
+    <div class="col-config">
+
+      <div class="card">
+        <div class="card-title">Búsqueda</div>
+        <div class="form-grid" style="grid-template-columns:1fr">
+          <div class="form-group">
+            <label class="form-label">Keywords <span style="color:var(--muted);font-weight:400;text-transform:none">separadas por coma</span></label>
+            <input type="text" id="s-keywords" value="AI, software architect, engineer">
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Ubicación</label>
+            <input type="text" id="s-location" value="Spain">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Páginas / keyword</label>
+            <input type="number" id="s-pages" value="5" min="1" max="40">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Ventana temporal <span class="param-tag">f_TPR</span></label>
+          <select id="s-days">
+            <option value="1">Últimas 24 horas</option>
+            <option value="7" selected>Últimos 7 días</option>
+            <option value="14">Últimas 2 semanas</option>
+            <option value="30">Últimos 30 días</option>
+            <option value="0">Sin límite</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Filtros LinkedIn</div>
+
+        <div class="toggle-row">
+          <label class="toggle-item">
+            <span class="sw"><input type="checkbox" id="s-remote" checked><span class="sw-track"></span></span>
+            Solo remotas <span class="param-tag">f_WT=2</span>
+          </label>
+          <label class="toggle-item">
+            <span class="sw"><input type="checkbox" id="s-easy-apply"><span class="sw-track"></span></span>
+            Easy Apply <span class="param-tag">f_AL</span>
+          </label>
+          <label class="toggle-item">
+            <span class="sw"><input type="checkbox" id="s-few"><span class="sw-track"></span></span>
+            &lt;10 candidatos <span class="param-tag">f_JIYN</span>
+          </label>
+        </div>
+
+        <div class="section-sep">Tipo de contrato <span class="stag">f_JT</span></div>
+        <div class="pill-group" style="margin-bottom:12px">
+          <div class="pill-item"><input type="checkbox" id="jt-F" class="jt-check" value="F"><label for="jt-F">Full-time</label></div>
+          <div class="pill-item"><input type="checkbox" id="jt-P" class="jt-check" value="P"><label for="jt-P">Part-time</label></div>
+          <div class="pill-item"><input type="checkbox" id="jt-C" class="jt-check" value="C"><label for="jt-C">Contrato</label></div>
+          <div class="pill-item"><input type="checkbox" id="jt-T" class="jt-check" value="T"><label for="jt-T">Temporal</label></div>
+          <div class="pill-item"><input type="checkbox" id="jt-I" class="jt-check" value="I"><label for="jt-I">Prácticas</label></div>
+          <div class="pill-item"><input type="checkbox" id="jt-O" class="jt-check" value="O"><label for="jt-O">Otros</label></div>
+        </div>
+
+        <div class="section-sep">Nivel de experiencia <span class="stag">f_E</span></div>
+        <div class="pill-group">
+          <div class="pill-item"><input type="checkbox" id="exp-1" class="exp-check exp-1" value="1"><label for="exp-1">1 · Internship</label></div>
+          <div class="pill-item"><input type="checkbox" id="exp-2" class="exp-check exp-2" value="2"><label for="exp-2">2 · Junior</label></div>
+          <div class="pill-item"><input type="checkbox" id="exp-3" class="exp-check" value="3"><label for="exp-3">3 · Associate</label></div>
+          <div class="pill-item"><input type="checkbox" id="exp-4" class="exp-check exp-4" value="4"><label for="exp-4">4 · Mid-Senior</label></div>
+          <div class="pill-item"><input type="checkbox" id="exp-5" class="exp-check exp-5" value="5"><label for="exp-5">5 · Director</label></div>
+          <div class="pill-item"><input type="checkbox" id="exp-6" class="exp-check exp-6" value="6"><label for="exp-6">6 · Executive</label></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Idioma de la descripción</div>
+        <div class="toggle-row" style="margin-bottom:10px">
+          <label class="toggle-item">
+            <span class="sw"><input type="checkbox" id="s-lang-filter" onchange="onLangFilterChange()"><span class="sw-track"></span></span>
+            Solo ofertas en español 🇪🇸
+          </label>
+        </div>
+        <p style="font-size:11.5px;color:var(--muted);line-height:1.5">
+          Detecta el idioma de la <strong style="color:var(--text2)">descripción</strong> (no del título) mediante ratio de stop-words.<br>
+          Al activar este filtro, "obtener descripciones" se fuerza automáticamente.
+        </p>
+      </div>
+
+      <div class="card" style="background:var(--s2)">
+        <div class="card-title">Opciones</div>
+        <div class="toggle-row">
+          <label class="toggle-item" id="desc-toggle-wrap">
+            <span class="sw"><input type="checkbox" id="s-descriptions" checked><span class="sw-track"></span></span>
+            Obtener descripciones completas <span style="color:var(--muted);font-size:11px">(más lento)</span>
+          </label>
+        </div>
+      </div>
+
+      <button class="btn btn-launch" id="btn-scrape" onclick="startScraping()">
+        ▶&nbsp; Iniciar Scraping
+      </button>
+
+    </div>
+
+    <!-- Console -->
+    <div class="col-console">
+      <div class="terminal">
+        <div class="terminal-header">
+          <div class="terminal-dots">
+            <span class="dot-red"></span>
+            <span class="dot-amber"></span>
+            <span class="dot-green"></span>
+          </div>
+          <span class="terminal-label">scraper.log</span>
+          <button class="terminal-clear" onclick="clearConsole('scrape-console')">limpiar</button>
+        </div>
+        <div class="console-body" id="scrape-console">
+          <div class="log-line log-info"><span class="log-ts">--:--:--</span><span class="log-msg">Esperando para iniciar…</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     TAB: LIMPIEZA IA
+══════════════════════════════════════════════════════════════════ -->
+<div id="tab-clean" class="tab-pane">
+  <div class="two-col">
+
+    <!-- Config -->
+    <div class="col-config">
+
+      <div class="card">
+        <div class="card-title">Modelo OpenAI</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Modelo</label>
+            <select id="c-model">
+              <option value="gpt-4o-mini">gpt-4o-mini — rápido y barato</option>
+              <option value="gpt-4o">gpt-4o — mejor calidad</option>
+              <option value="gpt-4-turbo">gpt-4-turbo</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Eliminar con score &lt;</label>
+            <input type="number" id="c-min-score" placeholder="ej. 5  (vacío = no eliminar)" min="1" max="10">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Tu perfil</div>
+        <div class="form-group">
+          <label class="form-label">¿Qué busca el candidato? <span style="color:var(--muted);font-weight:400">(orienta al modelo)</span></label>
+          <textarea id="c-profile" style="min-height:100px">Senior AI/ML engineer con 5+ años. Busco roles remotos en empresas de producto o startups de IA. Stack: PyTorch, LangChain, FastAPI. No consultoras ni puestos junior.</textarea>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Opciones</div>
+        <div class="toggle-row">
+          <label class="toggle-item">
+            <span class="sw"><input type="checkbox" id="c-remote" checked><span class="sw-track"></span></span>
+            Verificar si es realmente remoto
+          </label>
+          <label class="toggle-item">
+            <span class="sw"><input type="checkbox" id="c-score" checked><span class="sw-track"></span></span>
+            Puntuar relevancia 1–10
+          </label>
+          <label class="toggle-item">
+            <span class="sw"><input type="checkbox" id="c-force"><span class="sw-track"></span></span>
+            Re-evaluar ya puntuadas
+          </label>
+        </div>
+      </div>
+
+      <button class="btn btn-launch btn-launch-green" id="btn-clean" onclick="startCleaning()">
+        ✦&nbsp; Lanzar Limpieza IA
+      </button>
+
+    </div>
+
+    <!-- Console -->
+    <div class="col-console">
+      <div class="terminal">
+        <div class="terminal-header">
+          <div class="terminal-dots">
+            <span class="dot-red"></span><span class="dot-amber"></span><span class="dot-green"></span>
+          </div>
+          <span class="terminal-label">cleaner.log</span>
+          <button class="terminal-clear" onclick="clearConsole('clean-console')">limpiar</button>
+        </div>
+        <div class="console-body" id="clean-console">
+          <div class="log-line log-info"><span class="log-ts">--:--:--</span><span class="log-msg">Esperando para iniciar…</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</main>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════════
+let allJobs = [];
+let sortKey = 'posted_at';
+let sortDir = -1; // -1=desc  +1=asc
+
+// ═══════════════════════════════════════════════════════════════════════
+// TAB NAVIGATION — sliding indicator
+// ═══════════════════════════════════════════════════════════════════════
+function switchTab(btn) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  moveTabIndicator(btn);
+}
+
+function moveTabIndicator(btn) {
+  const nav = document.getElementById('nav');
+  const navLeft = nav.getBoundingClientRect().left;
+  const btnRect = btn.getBoundingClientRect();
+  nav.style.setProperty('--tab-x', (btnRect.left - navLeft) + 'px');
+  nav.style.setProperty('--tab-w', btnRect.width + 'px');
+}
+
+// Init indicator on the first (active) tab
+window.addEventListener('load', () => {
+  const activeBtn = document.querySelector('.tab-btn.active');
+  if (activeBtn) moveTabIndicator(activeBtn);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// API CLIENT
+// ═══════════════════════════════════════════════════════════════════════
+const API = {
+  async get(path) {
+    const r = await fetch(path);
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  },
+  async post(path, body) {
+    const r = await fetch(path, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({detail: r.statusText}));
+      throw new Error(e.detail || r.statusText);
+    }
+    return r.json();
+  },
+  async del(path) {
+    const r = await fetch(path, {method:'DELETE'});
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+// STATS
+// ═══════════════════════════════════════════════════════════════════════
+async function loadStats() {
+  try {
+    const s = await API.get('/api/stats');
+    animateNumber('s-total',  s.total);
+    animateNumber('s-remote', s.remote);
+    animateNumber('s-scored', s.scored);
+    document.getElementById('s-date').textContent = s.last_scraped || '—';
+    setBadge('badge-scrape', s.scraping, 'Scraping');
+    setBadge('badge-clean',  s.cleaning, 'IA');
+  } catch(e) { console.error('stats', e); }
+}
+
+function animateNumber(id, target) {
+  const el = document.getElementById(id);
+  const start = parseInt(el.textContent) || 0;
+  if (start === target) return;
+  const diff = target - start;
+  const steps = 20;
+  let i = 0;
+  const step = () => {
+    i++;
+    el.textContent = Math.round(start + diff * (i / steps));
+    if (i < steps) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function setBadge(id, active, label) {
+  const el = document.getElementById(id);
+  el.className = 'status-pill ' + (active ? 'running' : 'idle');
+  el.innerHTML = `<span class="status-dot"></span> ${label}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// JOBS
+// ═══════════════════════════════════════════════════════════════════════
+async function loadJobs() {
+  try {
+    const data = await API.get('/api/jobs?remote_only=false');
+    allJobs = data.jobs;
+    filterJobs();
+  } catch(e) { console.error('jobs', e); }
+}
+
+function filterJobs() {
+  const search   = (document.getElementById('f-search').value || '').toLowerCase();
+  const remF     = document.getElementById('f-remote').value;
+  const langF    = document.getElementById('f-lang').value;
+  const scoreF   = parseInt(document.getElementById('f-score').value) || 0;
+
+  let jobs = allJobs.filter(j => {
+    if (remF === 'remote' && !j.is_remote) return false;
+    if (langF && j.lang && j.lang !== 'unknown' && j.lang !== langF) return false;
+    if (scoreF && (j.ai_score || 0) < scoreF) return false;
+    if (search) {
+      const hay = ((j.title || '') + ' ' + (j.company || '')).toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+
+  // Sort
+  jobs = jobs.slice().sort((a, b) => {
+    let va = a[sortKey] ?? '';
+    let vb = b[sortKey] ?? '';
+    if (va < vb) return -sortDir;
+    if (va > vb) return  sortDir;
+    return 0;
+  });
+
+  renderJobs(jobs);
+}
+
+function sortBy(key, th) {
+  if (sortKey === key) sortDir *= -1;
+  else { sortKey = key; sortDir = -1; }
+  document.querySelectorAll('thead th').forEach(t => {
+    t.classList.remove('sorted','asc');
+  });
+  th.classList.add('sorted');
+  if (sortDir === 1) th.classList.add('asc');
+  filterJobs();
+}
+
+function renderJobs(jobs) {
+  const tbody = document.getElementById('jobs-body');
+  document.getElementById('job-count').textContent = jobs.length + ' ofertas';
+
+  if (!jobs.length) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="ei">🔍</div><p>No hay ofertas que coincidan</p></div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = jobs.map(j => {
+    const av    = companyAvatar(j.company);
+    const date  = relativeDate(j.posted_at);
+    const score = renderScore(j.ai_score);
+    const rem   = j.is_remote
+      ? `<span class="badge-remote"><span class="pulse-dot"></span>Remoto</span>`
+      : `<span class="badge-office">🏢 Presencial</span>`;
+    const lang  = renderLang(j.lang);
+    const notes = j.ai_notes
+      ? `<div class="note-cell" title="${esc(j.ai_notes)}"><span>${esc(j.ai_notes)}</span></div>`
+      : `<span style="color:var(--muted);font-size:11px">—</span>`;
+    const url   = j.url ? `href="${esc(j.url)}" target="_blank" rel="noopener"` : '';
+    const jid   = esc(String(j.job_id || ''));
+
+    return `<tr>
+      <td style="white-space:nowrap;color:var(--text2);font-size:12px">${date}</td>
+      <td class="job-title">
+        <a ${url}>${esc(j.title || '—')}</a>
+        ${j.keyword ? `<br><span class="kw-tag">${esc(j.keyword)}</span>` : ''}
+      </td>
+      <td>
+        <div class="company-cell">
+          ${av}
+          <span class="company-name">${esc(j.company || '—')}</span>
+        </div>
+      </td>
+      <td>
+        ${rem}
+        <div class="loc-text">${esc(j.location || '')}</div>
+      </td>
+      <td>${lang}</td>
+      <td>${score}</td>
+      <td>${notes}</td>
+      <td>
+        <button class="btn-row-del" title="Eliminar oferta" onclick="deleteJob('${jid}',this)">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── Helpers de rendering ─────────────────────────────────────────────────────
+
+function companyAvatar(name) {
+  if (!name) return `<div class="company-av" style="--av-hue:220">?</div>`;
+  const initials = name.trim().split(/\s+/).slice(0,2).map(w => w[0].toUpperCase()).join('');
+  // Hash determinístico del nombre → hue para el color
+  const hue = [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 0);
+  return `<div class="company-av" style="--av-hue:${hue}">${initials}</div>`;
+}
+
+function renderScore(score) {
+  if (score == null) return `<div class="score-na">N/A</div>`;
+  const pct   = score * 10;
+  const color = score >= 7 ? 'var(--green)' : score >= 5 ? 'var(--amber)' : 'var(--red)';
+  return `<div class="score-ring" style="--ring-p:${pct};--ring-c:${color}"><span>${score}</span></div>`;
+}
+
+function renderLang(lang) {
+  if (!lang || lang === 'unknown') return `<span class="badge-lang-unknown">—</span>`;
+  if (lang === 'es') return `<span class="badge-lang-es">ES</span>`;
+  if (lang === 'en') return `<span class="badge-lang-en">EN</span>`;
+  return `<span class="badge-lang-unknown">${esc(lang)}</span>`;
+}
+
+function relativeDate(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  const diff = Date.now() - d.getTime();
+  const days = Math.floor(diff / 86400000);
+  if (isNaN(days)) return dateStr.slice(0,10);
+  if (days === 0)  return 'Hoy';
+  if (days === 1)  return 'Ayer';
+  if (days <  7)   return `Hace ${days}d`;
+  if (days < 30)   return `Hace ${Math.floor(days/7)}sem`;
+  if (days < 365)  return `Hace ${Math.floor(days/30)}m`;
+  return `Hace ${Math.floor(days/365)}a`;
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+async function deleteJob(jobId, btn) {
+  if (!jobId || jobId === 'null') {
+    alert('Oferta sin ID — no se puede eliminar individualmente.'); return;
+  }
+  if (!confirm('¿Eliminar esta oferta de jobs.json?')) return;
+  try {
+    await API.del('/api/jobs/' + jobId);
+    const row = btn.closest('tr');
+    row.style.transition = 'opacity .25s, transform .25s';
+    row.style.opacity = '0'; row.style.transform = 'translateX(10px)';
+    setTimeout(() => {
+      row.remove();
+      allJobs = allJobs.filter(j => String(j.job_id) !== jobId);
+      document.getElementById('job-count').textContent = allJobs.length + ' ofertas';
+      loadStats();
+    }, 260);
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SSE CONSOLE
+// ═══════════════════════════════════════════════════════════════════════
+function clearConsole(id) {
+  document.getElementById(id).innerHTML = '';
+}
+
+function appendLog(consoleId, event) {
+  const el = document.getElementById(consoleId);
+  const line = document.createElement('div');
+  line.className = `log-line log-${event.level || event.type || 'info'}`;
+  line.innerHTML =
+    `<span class="log-ts">${event.ts || ''}</span>` +
+    `<span class="log-msg">${esc(event.msg || '')}</span>`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function sseConnect(streamUrl, consoleId, onDone) {
+  const es = new EventSource(streamUrl);
+  es.onmessage = e => {
+    const ev = JSON.parse(e.data);
+    if (ev.type === 'ping') return;
+    appendLog(consoleId, ev);
+    if (ev.type === 'done' || ev.type === 'error') {
+      es.close();
+      if (onDone) onDone(ev.type);
+    }
+  };
+  es.onerror = () => { es.close(); if (onDone) onDone('error'); };
+  return es;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SCRAPING
+// ═══════════════════════════════════════════════════════════════════════
+
+// Cuando se activa el filtro de idioma, forzamos el toggle de descripciones
+function onLangFilterChange() {
+  const langOn = document.getElementById('s-lang-filter').checked;
+  const descInput = document.getElementById('s-descriptions');
+  if (langOn) {
+    descInput.checked = true;
+    descInput.disabled = true;
+    descInput.closest('.toggle-item').style.opacity = '.5';
+  } else {
+    descInput.disabled = false;
+    descInput.closest('.toggle-item').style.opacity = '1';
+  }
+}
+
+let scrapeES = null;
+
+async function startScraping() {
+  // Recoger parámetros del formulario
+  const keywords    = document.getElementById('s-keywords').value
+                        .split(',').map(k => k.trim()).filter(Boolean);
+  const location    = document.getElementById('s-location').value.trim();
+  const maxPages    = parseInt(document.getElementById('s-pages').value) || 5;
+  const daysWindow  = parseInt(document.getElementById('s-days').value);
+  const remoteOnly  = document.getElementById('s-remote').checked;
+  const easyApply   = document.getElementById('s-easy-apply').checked;
+  const fewApps     = document.getElementById('s-few').checked;
+  const fetchDesc   = document.getElementById('s-descriptions').checked;
+  const langFilter  = document.getElementById('s-lang-filter').checked ? 'es' : null;
+
+  // Tipos de contrato — recoge values de pills marcadas (f_JT)
+  const jobTypes   = [...document.querySelectorAll('.jt-check:checked')].map(c => c.value);
+  // Niveles de experiencia — recoge values como enteros (f_E)
+  const expLevels  = [...document.querySelectorAll('.exp-check:checked')].map(c => parseInt(c.value));
+
+  if (!keywords.length) { alert('Añade al menos una keyword'); return; }
+
+  clearConsole('scrape-console');
+  const btn = document.getElementById('btn-scrape');
+
+  try {
+    await API.post('/api/scrape/start', {
+      keywords,
+      location,
+      max_pages:          maxPages,
+      remote_only:        remoteOnly,    // → f_WT=2
+      days_window:        daysWindow,    // → f_TPR=r<s>
+      easy_apply:         easyApply,     // → f_AL=true
+      few_applicants:     fewApps,       // → f_JIYN=true
+      job_types:          jobTypes,      // → f_JT ([] = todos)
+      experience_levels:  expLevels,     // → f_E  ([] = todos)
+      lang_filter:        langFilter,    // → filtrar por idioma descripción
+      fetch_descriptions: fetchDesc,
+    });
+  } catch(e) {
+    appendLog('scrape-console', { level:'error', msg:'Error al iniciar: ' + e.message, ts: now() });
+    return;
+  }
+
+  btn.disabled = true;
+  setBadge('badge-scrape', true, 'Scraping');
+
+  if (scrapeES) scrapeES.close();
+  scrapeES = sseConnect('/api/scrape/stream', 'scrape-console', type => {
+    btn.disabled = false;
+    setBadge('badge-scrape', false, 'Scraping');
+    if (type === 'done') { loadStats(); loadJobs(); }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// LIMPIEZA IA
+// ═══════════════════════════════════════════════════════════════════════
+let cleanES = null;
+
+async function startCleaning() {
+  const model      = document.getElementById('c-model').value;
+  const profile    = document.getElementById('c-profile').value.trim();
+  const minScoreRaw = document.getElementById('c-min-score').value;
+
+  if (!profile) { alert('Rellena el perfil del candidato'); return; }
+
+  clearConsole('clean-console');
+  const btn = document.getElementById('btn-clean');
+
+  const body = {
+    model,
+    profile,
+    check_remote:    document.getElementById('c-remote').checked,
+    score_relevance: document.getElementById('c-score').checked,
+    force_reclean:   document.getElementById('c-force').checked,
+  };
+  if (minScoreRaw) body.min_score_keep = parseInt(minScoreRaw);
+
+  try {
+    await API.post('/api/clean/start', body);
+  } catch(e) {
+    appendLog('clean-console', { level:'error', msg:'Error: ' + e.message, ts: now() });
+    return;
+  }
+
+  btn.disabled = true;
+  setBadge('badge-clean', true, 'IA');
+
+  if (cleanES) cleanES.close();
+  cleanES = sseConnect('/api/clean/stream', 'clean-console', type => {
+    btn.disabled = false;
+    setBadge('badge-clean', false, 'IA');
+    if (type === 'done') { loadStats(); loadJobs(); }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════════════
+function now() {
+  return new Date().toTimeString().slice(0, 8);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════════
+loadStats();
+loadJobs();
+setInterval(loadStats, 12000); // refresh stats every 12s
+</script>
+</body>
+</html>
