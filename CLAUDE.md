@@ -64,10 +64,8 @@ CHECKLIST.md          Estado del proyecto · tareas pendientes
 - `max_completion_tokens=2000` — necesario para modelos de thinking (reasoning interno)
 - Campos escritos: `ai_score`, `ai_remote_verified`, `ai_notes`, `ai_reject_reason`, `ai_cleaned_at`
 
-### Fase 3 — Clasificación ⬜
-- Agrupar jobs puntuados en categorías: `high` (≥8) · `mid` (5–7) · `low` (≤4)
-- Guardar campo `category` en cada job
-- Sin llamada IA adicional — lógica de umbrales en Python
+### Fase 3 — Clasificación ❌ Descartada
+> Redundante con `ai_score` + filtros del dashboard. Se pasa directamente a fase 4.
 
 ### Fase 4 — Contacto y envío de email ⬜
 `POST /api/email/start` → hilo daemon → logs SSE en `/api/email/stream`

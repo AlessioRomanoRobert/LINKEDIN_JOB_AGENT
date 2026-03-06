@@ -41,12 +41,10 @@ Estado del proyecto · actualizado 2026-03-06
 
 ---
 
-## Fase 3 — Clasificación
+## ~~Fase 3 — Clasificación~~ ❌ Descartada
 
-- [ ] Clasificar ofertas por categoría según score: `high` (≥8) · `mid` (5–7) · `low` (≤4)
-- [ ] Guardar campo `category` en cada job de `jobs.json`
-- [ ] Filtro por categoría en el dashboard (tab Ofertas)
-- [ ] Vista agrupada por categoría (opcional)
+> Redundante. El campo `ai_score` (1–10) + el filtro por score del dashboard + el color del anillo
+> cubren exactamente lo mismo. No aporta valor sobre lo ya implementado.
 
 ---
 
