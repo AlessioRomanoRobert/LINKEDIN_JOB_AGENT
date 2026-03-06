@@ -910,7 +910,8 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
           <div class="form-group">
             <label class="form-label">Modelo</label>
             <select id="c-model">
-              <option value="gpt-4o-mini">gpt-4o-mini — rápido y barato</option>
+              <option value="gpt-5-mini" selected>gpt-5-mini — rápido y barato</option>
+              <option value="gpt-4o-mini">gpt-4o-mini</option>
               <option value="gpt-4o">gpt-4o — mejor calidad</option>
               <option value="gpt-4-turbo">gpt-4-turbo</option>
             </select>
@@ -924,9 +925,33 @@ tbody tr:hover td { background: rgba(79,148,230,.04); }
 
       <div class="card">
         <div class="card-title">Tu perfil</div>
-        <div class="form-group">
-          <label class="form-label">¿Qué busca el candidato? <span style="color:var(--muted);font-weight:400">(orienta al modelo)</span></label>
-          <textarea id="c-profile" style="min-height:100px">Senior AI/ML engineer con 5+ años. Busco roles remotos en empresas de producto o startups de IA. Stack: PyTorch, LangChain, FastAPI. No consultoras ni puestos junior.</textarea>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Rol buscado</label>
+            <input type="text" id="c-role" value="AI/ML Engineer" placeholder="ej. Backend Developer, Data Engineer">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Seniority</label>
+            <select id="c-seniority">
+              <option value="Junior">Junior (0–2 años)</option>
+              <option value="Mid">Mid (2–5 años)</option>
+              <option value="Senior" selected>Senior (5+ años)</option>
+              <option value="Lead/Staff">Lead / Staff</option>
+              <option value="Principal/Architect">Principal / Architect</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label">Stack que dominas <span style="color:var(--green);font-size:11px">↑ puntúan a favor</span></label>
+          <textarea id="c-stack-yes" style="min-height:60px" placeholder="ej. Python, PyTorch, LangChain, FastAPI, AWS">Python, PyTorch, LangChain, FastAPI, AWS, OpenAI API</textarea>
+        </div>
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label">Stack / tecnologías a evitar <span style="color:var(--red);font-size:11px">↓ penalizan el score</span></label>
+          <textarea id="c-stack-no" style="min-height:60px" placeholder="ej. Java, .NET, PHP, SAP, COBOL"></textarea>
+        </div>
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label">Preferencias adicionales <span style="color:var(--muted);font-size:11px">(texto libre)</span></label>
+          <textarea id="c-extra" style="min-height:60px" placeholder="ej. No consultoras, prefiero startups o empresas de producto...">No consultoras ni outsourcing. Solo empresas de producto o startups de IA.</textarea>
         </div>
       </div>
 
@@ -1363,18 +1388,28 @@ async function stopScraping() {
 let cleanES = null;
 
 async function startCleaning() {
-  const model      = document.getElementById('c-model').value;
-  const profile    = document.getElementById('c-profile').value.trim();
+  const model       = document.getElementById('c-model').value;
+  const role        = document.getElementById('c-role').value.trim();
+  const seniority   = document.getElementById('c-seniority').value;
+  const stackYes    = document.getElementById('c-stack-yes').value
+                        .split(',').map(s => s.trim()).filter(Boolean);
+  const stackNo     = document.getElementById('c-stack-no').value
+                        .split(',').map(s => s.trim()).filter(Boolean);
+  const extraNotes  = document.getElementById('c-extra').value.trim();
   const minScoreRaw = document.getElementById('c-min-score').value;
 
-  if (!profile) { alert('Rellena el perfil del candidato'); return; }
+  if (!role) { alert('Especifica el rol buscado'); return; }
 
   clearConsole('clean-console');
   const btn = document.getElementById('btn-clean');
 
   const body = {
     model,
-    profile,
+    role,
+    seniority,
+    stack_yes:       stackYes,
+    stack_no:        stackNo,
+    extra_notes:     extraNotes,
     check_remote:    document.getElementById('c-remote').checked,
     score_relevance: document.getElementById('c-score').checked,
     force_reclean:   document.getElementById('c-force').checked,

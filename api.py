@@ -323,13 +323,31 @@ class CleanParams(BaseModel):
     """Parámetros para la limpieza y puntuación de ofertas con OpenAI."""
 
     model: str = Field(
-        default="gpt-4o-mini",
-        description="Modelo de OpenAI a usar (gpt-4o-mini, gpt-4o, gpt-4-turbo...)",
+        default="gpt-5-mini",
+        description="Modelo de OpenAI a usar (gpt-5-mini, gpt-4o, gpt-4o-mini...)",
     )
-    profile: str = Field(
-        default="Senior AI/ML engineer buscando roles remotos senior",
-        description="Descripción del perfil y preferencias del candidato",
+    # ── Perfil del candidato (se inyectan en el system prompt) ────────────────
+    role: str = Field(
+        default="AI/ML Engineer",
+        description="Tipo de rol buscado (ej. 'AI Engineer', 'Backend Developer')",
     )
+    seniority: str = Field(
+        default="Senior",
+        description="Nivel de seniority buscado (Junior / Mid / Senior / Lead / Principal)",
+    )
+    stack_yes: list[str] = Field(
+        default=[],
+        description="Tecnologías que domina el candidato — favorecen un score alto",
+    )
+    stack_no: list[str] = Field(
+        default=[],
+        description="Tecnologías/stacks a evitar — penalizan el score si son el foco de la oferta",
+    )
+    extra_notes: str = Field(
+        default="",
+        description="Preferencias adicionales en texto libre (ej. 'no consultoras', 'solo producto')",
+    )
+    # ── Opciones de evaluación ─────────────────────────────────────────────────
     check_remote: bool = Field(
         default=True,
         description="Pedir al modelo que confirme si el trabajo es realmente remoto",
@@ -670,18 +688,39 @@ async def start_clean(params: CleanParams):
                 f"Modelo: {params.model} | "
                 f"Procesando: {len(to_process)}/{len(jobs)} trabajos"
             )
-            clean_mgr.log(f"Perfil: {params.profile}")
+            clean_mgr.log(f"Rol: {params.role} ({params.seniority})")
+            if params.stack_yes:
+                clean_mgr.log(f"Stack sí: {', '.join(params.stack_yes)}")
+            if params.stack_no:
+                clean_mgr.log(f"Stack evitar: {', '.join(params.stack_no)}")
 
-            # System prompt que define el comportamiento del modelo
+            # ── System prompt ─────────────────────────────────────────────────
+            stack_yes_str = ", ".join(params.stack_yes) if params.stack_yes else "no especificado"
+            stack_no_str  = ", ".join(params.stack_no)  if params.stack_no  else "ninguna"
+            extra_block   = f"\nPreferencias adicionales: {params.extra_notes}" if params.extra_notes else ""
+
             system_prompt = (
-                f"Eres un asistente que evalúa ofertas de trabajo para un candidato con este perfil:\n"
-                f"{params.profile}\n\n"
+                f"Eres un evaluador experto de ofertas de trabajo. Evalúa cada oferta para este candidato:\n\n"
+                f"  Rol buscado:          {params.role} — nivel {params.seniority}\n"
+                f"  Stack que domina:     {stack_yes_str}\n"
+                f"  Stack a evitar:       {stack_no_str}"
+                f"{extra_block}\n\n"
+                "CRITERIOS DE PUNTUACIÓN (score 1-10):\n"
+                "  9-10 → Encaje excelente: rol exacto, stack muy alineado, nivel correcto\n"
+                "  7-8  → Buen encaje con algún mismatch menor de stack o nivel\n"
+                "  5-6  → Encaje parcial: stack diferente pero rol similar, o nivel no exacto\n"
+                "  3-4  → Mismatch significativo de tecnología o nivel\n"
+                "  1-2  → No encaja: tecnología completamente distinta, nivel incorrecto\n\n"
+                "PENALIZA CON SCORE ≤ 3 si:\n"
+                "  - La oferta requiere principalmente tecnologías del stack a evitar\n"
+                "  - El nivel de seniority no corresponde al buscado\n"
+                "  - La descripción contradice las preferencias adicionales\n\n"
                 "Responde SIEMPRE en JSON con exactamente estos campos:\n"
                 "{\n"
-                '  "score": <número 1-10 de relevancia para el perfil>,\n'
-                '  "is_remote": <true o false — ¿el trabajo es realmente remoto según la descripción?>,\n'
-                '  "notes": "<observaciones breves en español, máx 80 chars>",\n'
-                '  "reject_reason": "<motivo si score <= 3, sino null>"\n'
+                '  "score": <entero 1-10>,\n'
+                '  "is_remote": <true|false — ¿es realmente remoto según la descripción?>,\n'
+                '  "notes": "<observación breve en español, máx 80 chars, menciona fit de stack>",\n'
+                '  "reject_reason": "<motivo concreto si score <= 3, sino null>"\n'
                 "}"
             )
 
