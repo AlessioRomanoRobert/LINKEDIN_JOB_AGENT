@@ -449,14 +449,15 @@ def parse_hiring_contact(soup) -> dict | None:
     return {"name": name, "title": title, "linkedin_url": linkedin_url}
 
 
-def fetch_detail(job_id: str, log_fn=None) -> tuple[str | None, dict | None]:
+def fetch_detail(job_id: str, log_fn=None) -> tuple[str | None, dict | None, bool | None]:
     """
-    Obtiene la descripción completa y el contacto de contratación de una oferta,
-    en una sola petición HTTP al endpoint /jobPosting/<id>.
+    Obtiene la descripción completa, el contacto de contratación y si es remoto
+    de una oferta, en una sola petición HTTP al endpoint /jobPosting/<id>.
 
     Returns:
-        (description: str|None, hiring_contact: dict|None)
-        hiring_contact = {name, title, linkedin_url} si LinkedIn lo expone, sino None.
+        (description: str|None, hiring_contact: dict|None, is_remote: bool|None)
+        is_remote es True si LinkedIn muestra el botón/etiqueta "En remoto" / "Remote".
+        is_remote es None si no se puede determinar (no se encontró el indicador).
     """
     url = DETAIL_URL.format(job_id=job_id)
     try:
@@ -465,13 +466,11 @@ def fetch_detail(job_id: str, log_fn=None) -> tuple[str | None, dict | None]:
     except requests.RequestException as e:
         if log_fn:
             log_fn(f"  (error detalle {job_id}: {e})")
-        return None, None
+        return None, None, None
 
     soup = BeautifulSoup(r.text, "html.parser")
 
     # ── Descripción ───────────────────────────────────────────────────────────
-    # Probamos selectores de más a menos específico.
-    # LinkedIn ha ido renombrando estas clases; los tres cubren versiones distintas.
     description = None
     for el in [
         soup.find("div", class_="description__text"),
@@ -484,15 +483,24 @@ def fetch_detail(job_id: str, log_fn=None) -> tuple[str | None, dict | None]:
                 description = text
                 break
 
+    # ── Detección de remoto desde el detalle ──────────────────────────────────
+    # LinkedIn muestra un botón/enlace con texto "En remoto" o "Remote" en las
+    # ofertas que tienen modalidad remota explícita.
+    _REMOTE_LABELS = {"en remoto", "remote", "remoto", "teletrabajo"}
+    is_remote_detail = None
+    remote_node = soup.find(string=lambda t: t and t.strip().lower() in _REMOTE_LABELS)
+    if remote_node:
+        is_remote_detail = True
+
     # ── Contacto de contratación ──────────────────────────────────────────────
     hiring_contact = parse_hiring_contact(soup)
 
-    return description, hiring_contact
+    return description, hiring_contact, is_remote_detail
 
 
 def fetch_description(job_id: str, log_fn=None) -> str | None:
     """Wrapper de compatibilidad — devuelve solo la descripción."""
-    desc, _ = fetch_detail(job_id, log_fn=log_fn)
+    desc, _, _ = fetch_detail(job_id, log_fn=log_fn)
     return desc
 
 # ─── Flujo principal ──────────────────────────────────────────────────────────

@@ -448,7 +448,13 @@ textarea { min-height: 80px; resize: vertical; }
 ══════════════════════════════════════════════════════════════════ */
 .filter-bar {
   display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
-  margin-bottom: 14px;
+  position: sticky; top: 60px; z-index: 150;
+  background: rgba(7,9,15,.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+  margin: -20px -24px 14px;
+  padding: 10px 24px;
 }
 .search-wrap { position:relative; flex:1; min-width:200px; max-width:320px; }
 .search-icon {
@@ -460,10 +466,11 @@ textarea { min-height: 80px; resize: vertical; }
 }
 .filter-count {
   margin-left: auto;
-  font-size: 11.5px; color: var(--muted);
+  font-size: 12px; color: var(--text2);
   background: var(--s1); border: 1px solid var(--border);
   padding: 5px 12px; border-radius: 20px;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .table-wrap {
@@ -760,11 +767,7 @@ tr.row-applied td:first-child { border-left: 2px solid var(--green); }
     <button class="btn btn-ghost" onclick="loadJobs()" style="padding:7px 12px;font-size:12px">
       ↻ Actualizar
     </button>
-    <span class="filter-count" id="job-count">0 ofertas</span>
-
-    <button class="btn btn-ghost btn-discarded-toggle" id="btn-discarded" onclick="toggleDiscarded()" style="margin-left:auto;padding:7px 12px;font-size:12px;color:var(--muted)">
-      🗑 Descartadas (<span id="discarded-count">0</span>)
-    </button>
+    <span id="job-count" class="filter-count">0 ofertas</span>
   </div>
 
   <div class="table-wrap">
@@ -788,8 +791,15 @@ tr.row-applied td:first-child { border-left: 2px solid var(--green); }
     </table>
   </div>
 
-  <!-- Sección de descartadas (oculta por defecto) -->
-  <div id="discarded-section" style="display:none;margin-top:32px">
+  <!-- Botón y sección de descartadas -->
+  <div style="margin-top:24px;text-align:center">
+    <button class="btn btn-ghost" id="btn-discarded" onclick="toggleDiscarded()"
+            style="padding:8px 18px;font-size:12px;color:var(--muted);border:1px solid var(--border)">
+      🗑 Ver ofertas descartadas (<span id="discarded-count">0</span>)
+    </button>
+  </div>
+
+  <div id="discarded-section" style="display:none;margin-top:20px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div style="font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.05em;text-transform:uppercase">
         🗑 Ofertas descartadas
@@ -984,13 +994,13 @@ tr.row-applied td:first-child { border-left: 2px solid var(--green); }
         <div class="form-grid">
           <div class="form-group">
             <label class="form-label">Rol buscado <span style="color:var(--muted);font-weight:400;font-size:11px">— varios separados por coma</span></label>
-            <input type="text" id="c-role" value="AI/ML Engineer, Software Architect, Senior Engineer" placeholder="ej. AI Engineer, Data Engineer, MLOps">
+            <input type="text" id="c-role" value="AI Engineer, Software Architect, Senior Engineer" placeholder="ej. AI Engineer, Data Engineer, MLOps">
           </div>
           <div class="form-group">
             <label class="form-label">Seniority</label>
             <select id="c-seniority">
-              <option value="Junior">Junior (0–2 años)</option>
-              <option value="Mid">Mid (2–5 años)</option>
+              <option value="Junior">Junior (0-2 años)</option>
+              <option value="Mid">Mid (2-5 años)</option>
               <option value="Senior" selected>Senior (5+ años)</option>
               <option value="Lead/Staff">Lead / Staff</option>
               <option value="Principal/Architect">Principal / Architect</option>
@@ -999,25 +1009,21 @@ tr.row-applied td:first-child { border-left: 2px solid var(--green); }
         </div>
         <div class="form-group" style="margin-top:12px">
           <label class="form-label">Stack que dominas <span style="color:var(--green);font-size:11px">↑ puntúan a favor</span></label>
-          <textarea id="c-stack-yes" style="min-height:60px" placeholder="ej. Python, PyTorch, LangChain, FastAPI, AWS">Python, PyTorch, LangChain, FastAPI, AWS, OpenAI API, Angular, JavaScript, TypeScript, Node.js, RAG, MongoDB, PostgreSQL, React, Next.js, Redis, Git</textarea>
+          <textarea id="c-stack-yes" style="min-height:60px" placeholder="ej. Python, PyTorch, LangChain, FastAPI, AWS">Angular, JavaScript, TypeScript, Node.js, RAG, AI, LLM, MongoDB, PostgreSQL, Python, FastAPI, React, Next.js, Redis, Git</textarea>
         </div>
         <div class="form-group" style="margin-top:12px">
           <label class="form-label">Stack / tecnologías a evitar <span style="color:var(--red);font-size:11px">↓ penalizan el score</span></label>
-          <textarea id="c-stack-no" style="min-height:60px" placeholder="ej. Java, .NET, PHP, SAP, COBOL">.NET, Ruby, Java</textarea>
+          <textarea id="c-stack-no" style="min-height:60px" placeholder="ej. Java, .NET, PHP, SAP, COBOL">.NET, Ruby</textarea>
         </div>
         <div class="form-group" style="margin-top:12px">
           <label class="form-label">Preferencias adicionales <span style="color:var(--muted);font-size:11px">(texto libre)</span></label>
-          <textarea id="c-extra" style="min-height:60px" placeholder="ej. No consultoras, prefiero startups o empresas de producto...">No freelance.</textarea>
+          <textarea id="c-extra" style="min-height:60px" placeholder="ej. No consultoras, prefiero startups o empresas de producto...">No freelance. No DevOps.</textarea>
         </div>
       </div>
 
       <div class="card">
         <div class="card-title">Opciones</div>
         <div class="toggle-row">
-          <label class="toggle-item">
-            <span class="sw"><input type="checkbox" id="c-remote" checked><span class="sw-track"></span></span>
-            Verificar si es realmente remoto
-          </label>
           <label class="toggle-item">
             <span class="sw"><input type="checkbox" id="c-score" checked><span class="sw-track"></span></span>
             Puntuar relevancia 1–10
@@ -1214,7 +1220,10 @@ function sortBy(key, th) {
 
 function renderJobs(jobs) {
   const tbody = document.getElementById('jobs-body');
-  document.getElementById('job-count').textContent = jobs.length + ' ofertas';
+  const total = allJobs.length;
+  const shown = jobs.length;
+  document.getElementById('job-count').textContent =
+    shown === total ? `${total} ofertas` : `${shown} de ${total} ofertas`;
 
   if (!jobs.length) {
     tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="ei">🔍</div><p>No hay ofertas que coincidan</p></div></td></tr>`;
@@ -1362,7 +1371,7 @@ async function deleteJob(jobId, btn) {
     setTimeout(() => {
       row.remove();
       allJobs = allJobs.filter(j => String(j.job_id) !== jobId);
-      document.getElementById('job-count').textContent = allJobs.length + ' ofertas';
+      filterJobs();
       loadStats();
     }, 260);
   } catch(e) { alert('Error: ' + e.message); }
@@ -1519,7 +1528,7 @@ async function startCleaning() {
     stack_yes:       stackYes,
     stack_no:        stackNo,
     extra_notes:     extraNotes,
-    check_remote:    document.getElementById('c-remote').checked,
+    check_remote:    true,
     score_relevance: document.getElementById('c-score').checked,
     force_reclean:   document.getElementById('c-force').checked,
   };

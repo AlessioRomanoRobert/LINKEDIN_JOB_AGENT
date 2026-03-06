@@ -389,7 +389,7 @@ class CleanParams(BaseModel):
     )
     # ── Perfil del candidato (se inyectan en el system prompt) ────────────────
     role: str = Field(
-        default="AI/ML Engineer",
+        default="AI Engineer, Software Architect, Senior Engineer",
         description="Tipo de rol buscado (ej. 'AI Engineer', 'Backend Developer')",
     )
     seniority: str = Field(
@@ -664,9 +664,12 @@ async def start_scrape(params: ScrapeParams):
                     scrape_mgr.log(
                         f"[{i+1}/{len(jobs_list)}] {job['title']} @ {job.get('company', '?')}"
                     )
-                    desc, contact = fetch_detail(jid)
+                    desc, contact, is_remote_detail = fetch_detail(jid)
                     job["description"]    = desc
                     job["hiring_contact"] = contact   # {name, title, linkedin_url} o None
+                    # Si LinkedIn indica remoto explícitamente en el detalle, prevalece
+                    if is_remote_detail is True:
+                        job["is_remote"] = True
                     if contact:
                         scrape_mgr.log(
                             f"  Contacto: {contact['name']} ({contact.get('title') or 'sin cargo'})",
