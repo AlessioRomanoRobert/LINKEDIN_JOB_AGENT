@@ -265,7 +265,8 @@ def parse_card(card) -> dict | None:
         # posted_at viene en formato ISO (YYYY-MM-DD) dentro del atributo datetime
         "posted_at":   date_el.get("datetime")         if date_el    else None,
         "posted_text": date_el.get_text(strip=True)    if date_el    else None,
-        "url":         href,
+        # URL canónica sin tokens de tracking (refId, trackingId, etc.) que caducan
+        "url":         f"https://www.linkedin.com/jobs/view/{job_id}",
         "description": None,   # se rellena en fetch_description()
         "keyword":     None,   # se rellena en main()
     }
